@@ -40,6 +40,7 @@ const LineLayer: Component<LineLayerProps> = (props) => {
     }
 
     if (!map.getLayer(LAYER_ID)) {
+      const beforeLayer = map.getLayer("stops-clusters") ? "stops-clusters" : undefined;
       map.addLayer(
         {
           id: LAYER_ID,
@@ -55,7 +56,7 @@ const LineLayer: Component<LineLayerProps> = (props) => {
             "line-opacity": 0.85,
           },
         },
-        "stops-clusters",
+        beforeLayer,
       );
     }
   }

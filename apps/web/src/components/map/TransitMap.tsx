@@ -8,6 +8,8 @@ import {
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { connect, disconnect, updateBBox } from "../../services/sse-client";
+import { getStops } from "../../services/api";
+import { setStops } from "../../stores/transit";
 import { bboxFromBounds } from "../../utils/geo";
 import { theme } from "../../stores/ui";
 import LineSelector from "../panels/LineSelector";
@@ -45,6 +47,15 @@ const TransitMap: Component = () => {
     }, DEBOUNCE_MS);
   }
 
+  async function loadStops(): Promise<void> {
+    try {
+      const stops = await getStops();
+      setStops(stops);
+    } catch (err) {
+      console.error("Failed to load stops:", err);
+    }
+  }
+
   onMount(() => {
     if (!containerRef) return;
 
@@ -76,6 +87,7 @@ const TransitMap: Component = () => {
     map.on("load", () => {
       setMapReady(true);
       handleMoveEnd();
+      loadStops();
     });
 
     map.on("moveend", handleMoveEnd);

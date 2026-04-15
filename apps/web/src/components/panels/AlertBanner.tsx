@@ -1,5 +1,6 @@
-import { type Component, For, Show, createSignal, createMemo } from "solid-js";
-import { transitState } from "../../stores/transit";
+import { type Component, For, Show, createSignal, createMemo, onMount } from "solid-js";
+import { transitState, setAlerts } from "../../stores/transit";
+import { getAlerts } from "../../services/api";
 import "../../styles/components/alert-banner.css";
 
 type Severity = "info" | "warning" | "error";
@@ -25,6 +26,15 @@ function highestSeverity(effects: string[]): Severity {
 
 const AlertBanner: Component = () => {
   const [expanded, setExpanded] = createSignal(false);
+
+  onMount(async () => {
+    if (transitState.alerts.length === 0) {
+      try {
+        const alerts = await getAlerts();
+        setAlerts(alerts);
+      } catch { /* SSE will populate later */ }
+    }
+  });
 
   const alertCount = createMemo(() => transitState.alerts.length);
 

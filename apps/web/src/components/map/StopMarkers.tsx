@@ -67,7 +67,7 @@ const StopMarkers: Component<StopMarkersProps> = (props) => {
       source: SOURCE_ID,
       filter: ["has", "point_count"],
       paint: {
-        "circle-color": "var(--color-accent, #6c63ff)",
+        "circle-color": "#6c63ff",
         "circle-radius": ["step", ["get", "point_count"], 15, 50, 20, 200, 25],
         "circle-opacity": 0.6,
       },

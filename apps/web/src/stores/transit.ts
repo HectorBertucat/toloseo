@@ -97,6 +97,10 @@ function getVehicleList(): Vehicle[] {
   return Object.values(transitState.vehicles);
 }
 
+function setAlerts(alerts: Alert[]): void {
+  setTransitState("alerts", alerts);
+}
+
 function getStopList(): Stop[] {
   return Object.values(transitState.stops);
 }
@@ -106,6 +110,7 @@ export {
   setConnectionStatus,
   setLines,
   setStops,
+  setAlerts,
   handleSSEEvent,
   getVehiclesByRoute,
   getVehicleList,

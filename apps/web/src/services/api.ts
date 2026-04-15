@@ -40,8 +40,8 @@ async function fetchJson<T>(url: string): Promise<T> {
   return body.data;
 }
 
-function bboxToParams(bbox: BBox): string {
-  return `minLon=${bbox.minLon}&minLat=${bbox.minLat}&maxLon=${bbox.maxLon}&maxLat=${bbox.maxLat}`;
+function bboxToQuery(bbox: BBox): string {
+  return `bbox=${bbox.minLon},${bbox.minLat},${bbox.maxLon},${bbox.maxLat}`;
 }
 
 // ── Transit endpoints ───────────────────────────────────────
@@ -63,8 +63,9 @@ async function getLineShape(lineId: string): Promise<LineShape> {
   return fetchJson<LineShape>(`/api/lines/${encodeURIComponent(lineId)}/shape`);
 }
 
-async function getStops(bbox: BBox): Promise<Stop[]> {
-  return fetchJson<Stop[]>(`/api/stops?${bboxToParams(bbox)}`);
+async function getStops(bbox?: BBox): Promise<Stop[]> {
+  const query = bbox ? `?${bboxToQuery(bbox)}` : "";
+  return fetchJson<Stop[]>(`/api/stops${query}`);
 }
 
 async function getStopDepartures(stopId: string): Promise<DepartureInfo[]> {

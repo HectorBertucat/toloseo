@@ -22,15 +22,6 @@ interface SseClient {
 
 export function registerSseRoutes(app: Hono): void {
   app.get("/api/stream", (c) => {
-    const ip = getClientIpFromHeader((name) => c.req.header(name));
-
-    if (!acquireSseSlot(ip)) {
-      return c.json(
-        { ok: false, error: "Too many SSE connections", timestamp: Date.now() },
-        429,
-      );
-    }
-
     const bboxRaw = c.req.query("bbox");
     const bbox = bboxRaw ? parseBbox(bboxRaw) : null;
 
@@ -52,7 +43,6 @@ export function registerSseRoutes(app: Hono): void {
           logger.error({ err, clientId: client.id }, "SSE stream error");
         }
       } finally {
-        releaseSseSlot(ip);
         logger.debug({ clientId: client.id }, "SSE client disconnected");
       }
     });

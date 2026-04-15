@@ -23,13 +23,20 @@ function cleanExpiredBuckets(): void {
 setInterval(cleanExpiredBuckets, WINDOW_MS);
 
 function getClientIp(c: { req: { header: (name: string) => string | undefined } }): string {
-  return c.req.header("x-forwarded-for")?.split(",")[0]?.trim()
+  return c.req.header("cf-connecting-ip")
+    ?? c.req.header("x-forwarded-for")?.split(",")[0]?.trim()
     ?? c.req.header("x-real-ip")
     ?? "unknown";
 }
 
 export function rateLimit(): MiddlewareHandler {
   return async (c, next) => {
+    // SSE connections have their own rate limiting (acquireSseSlot)
+    if (c.req.path === "/api/stream") {
+      await next();
+      return;
+    }
+
     const ip = getClientIp(c);
     const now = Date.now();
 
@@ -70,7 +77,8 @@ export function releaseSseSlot(ip: string): void {
 export function getClientIpFromHeader(
   headerFn: (name: string) => string | undefined,
 ): string {
-  return headerFn("x-forwarded-for")?.split(",")[0]?.trim()
+  return headerFn("cf-connecting-ip")
+    ?? headerFn("x-forwarded-for")?.split(",")[0]?.trim()
     ?? headerFn("x-real-ip")
     ?? "unknown";
 }

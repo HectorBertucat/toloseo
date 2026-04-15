@@ -1,13 +1,15 @@
 import type { SSEEvent, BBox } from "@shared/types";
 import { handleSSEEvent, setConnectionStatus } from "../stores/transit";
 
-const MAX_RETRIES = 10;
-const BASE_DELAY_MS = 1000;
+const MAX_RETRIES = 8;
+const BASE_DELAY_MS = 2000;
 const MAX_DELAY_MS = 30000;
 
 let eventSource: EventSource | null = null;
 let retryCount = 0;
 let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+let currentBBox: BBox | undefined;
+let isConnecting = false;
 
 function buildStreamUrl(bbox?: BBox): string {
   const url = new URL("/api/stream", window.location.origin);
@@ -19,7 +21,7 @@ function buildStreamUrl(bbox?: BBox): string {
 
 function getBackoffDelay(): number {
   const delay = Math.min(BASE_DELAY_MS * Math.pow(2, retryCount), MAX_DELAY_MS);
-  const jitter = delay * 0.2 * Math.random();
+  const jitter = delay * 0.3 * Math.random();
   return delay + jitter;
 }
 
@@ -27,13 +29,15 @@ function parseEvent(data: string): SSEEvent | null {
   try {
     return JSON.parse(data) as SSEEvent;
   } catch {
-    console.warn("Failed to parse SSE event:", data);
     return null;
   }
 }
 
 function connect(bbox?: BBox): void {
-  disconnect();
+  if (isConnecting) return;
+  closeExisting();
+  isConnecting = true;
+  currentBBox = bbox;
   setConnectionStatus("connecting");
 
   const url = buildStreamUrl(bbox);
@@ -41,6 +45,7 @@ function connect(bbox?: BBox): void {
 
   eventSource.onopen = () => {
     retryCount = 0;
+    isConnecting = false;
     setConnectionStatus("connected");
   };
 
@@ -55,14 +60,14 @@ function connect(bbox?: BBox): void {
   eventSource.addEventListener("heartbeat", handleEvent);
 
   eventSource.onerror = () => {
+    isConnecting = false;
     setConnectionStatus("error");
-    eventSource?.close();
-    eventSource = null;
-    scheduleReconnect(bbox);
+    closeExisting();
+    scheduleReconnect();
   };
 }
 
-function scheduleReconnect(bbox?: BBox): void {
+function scheduleReconnect(): void {
   if (retryCount >= MAX_RETRIES) {
     setConnectionStatus("disconnected");
     return;
@@ -72,11 +77,11 @@ function scheduleReconnect(bbox?: BBox): void {
   retryCount++;
 
   retryTimeout = setTimeout(() => {
-    connect(bbox);
+    connect(currentBBox);
   }, delay);
 }
 
-function disconnect(): void {
+function closeExisting(): void {
   if (retryTimeout) {
     clearTimeout(retryTimeout);
     retryTimeout = null;
@@ -85,13 +90,20 @@ function disconnect(): void {
     eventSource.close();
     eventSource = null;
   }
+}
+
+function disconnect(): void {
+  closeExisting();
   retryCount = 0;
+  isConnecting = false;
   setConnectionStatus("disconnected");
 }
 
 function updateBBox(bbox: BBox): void {
-  const wasConnected = eventSource !== null;
-  if (wasConnected) {
+  currentBBox = bbox;
+  // Only reconnect if already connected, don't reset retry count
+  if (eventSource && eventSource.readyState === EventSource.OPEN) {
+    closeExisting();
     connect(bbox);
   }
 }
