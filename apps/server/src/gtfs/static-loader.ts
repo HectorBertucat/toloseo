@@ -120,51 +120,44 @@ function parseZipLocalHeaders(
 }
 
 async function parseAllFiles(files: Map<string, string>): Promise<void> {
-  const tasks: Promise<void>[] = [];
+  const parsers: [string, (csv: string) => Promise<void>][] = [
+    ["routes.txt", parseRoutes],
+    ["stops.txt", parseStops],
+    ["trips.txt", parseTrips],
+    ["shapes.txt", parseShapes],
+    ["calendar.txt", parseCalendar],
+    ["calendar_dates.txt", parseCalendarDates],
+    ["stop_times.txt", parseStopTimes],
+  ];
 
-  const routesCsv = files.get("routes.txt");
-  if (routesCsv) tasks.push(parseRoutes(routesCsv));
-
-  const stopsCsv = files.get("stops.txt");
-  if (stopsCsv) tasks.push(parseStops(stopsCsv));
-
-  const tripsCsv = files.get("trips.txt");
-  if (tripsCsv) tasks.push(parseTrips(tripsCsv));
-
-  const shapesCsv = files.get("shapes.txt");
-  if (shapesCsv) tasks.push(parseShapes(shapesCsv));
-
-  const calendarCsv = files.get("calendar.txt");
-  if (calendarCsv) tasks.push(parseCalendar(calendarCsv));
-
-  const calendarDatesCsv = files.get("calendar_dates.txt");
-  if (calendarDatesCsv) tasks.push(parseCalendarDates(calendarDatesCsv));
-
-  await Promise.all(tasks);
-
-  const stopTimesCsv = files.get("stop_times.txt");
-  if (stopTimesCsv) await parseStopTimes(stopTimesCsv);
+  for (const [filename, parser] of parsers) {
+    const csv = files.get(filename);
+    if (csv) {
+      await parser(csv);
+      files.delete(filename);
+      logger.debug({ file: filename }, "parsed GTFS file");
+    }
+  }
 }
 
-async function parseCsv(
+function streamCsv(
   content: string,
-): Promise<Record<string, string>[]> {
+  onRow: (row: Record<string, string>) => void,
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    const records: Record<string, string>[] = [];
     const stream = Readable.from(content);
     const parser = stream.pipe(
       parse({ columns: true, skip_empty_lines: true, trim: true }),
     );
-    parser.on("data", (row: Record<string, string>) => records.push(row));
-    parser.on("end", () => resolve(records));
+    parser.on("data", onRow);
+    parser.on("end", resolve);
     parser.on("error", reject);
   });
 }
 
 async function parseRoutes(csv: string): Promise<void> {
-  const rows = await parseCsv(csv);
   const routes = getRoutes();
-  for (const row of rows) {
+  await streamCsv(csv, (row) => {
     const id = row["route_id"] ?? "";
     const shortName = row["route_short_name"] ?? "";
     const routeType = parseInt(row["route_type"] ?? "3", 10);
@@ -179,16 +172,15 @@ async function parseRoutes(csv: string): Promise<void> {
       avgDelay: 0,
     };
     routes.set(id, line);
-  }
+  });
 }
 
 async function parseStops(csv: string): Promise<void> {
-  const rows = await parseCsv(csv);
   const stopsMap = getStops();
-  for (const row of rows) {
+  await streamCsv(csv, (row) => {
     const id = row["stop_id"] ?? "";
     const locationType = parseInt(row["location_type"] ?? "0", 10);
-    if (locationType === 1) continue;
+    if (locationType === 1) return;
 
     const stop: Stop = {
       id,
@@ -199,13 +191,12 @@ async function parseStops(csv: string): Promise<void> {
       wheelchairAccessible: row["wheelchair_boarding"] === "1",
     };
     stopsMap.set(id, stop);
-  }
+  });
 }
 
 async function parseTrips(csv: string): Promise<void> {
-  const rows = await parseCsv(csv);
   const tripsMap = getTrips();
-  for (const row of rows) {
+  await streamCsv(csv, (row) => {
     const tripId = row["trip_id"] ?? "";
     const trip: TripInfo = {
       tripId,
@@ -216,15 +207,14 @@ async function parseTrips(csv: string): Promise<void> {
       directionId: parseInt(row["direction_id"] ?? "0", 10),
     };
     tripsMap.set(tripId, trip);
-  }
+  });
 }
 
 async function parseShapes(csv: string): Promise<void> {
-  const rows = await parseCsv(csv);
   const shapesMap = getShapes();
   const grouped = new Map<string, { seq: number; lat: number; lon: number }[]>();
 
-  for (const row of rows) {
+  await streamCsv(csv, (row) => {
     const shapeId = row["shape_id"] ?? "";
     const point = {
       seq: parseInt(row["shape_pt_sequence"] ?? "0", 10),
@@ -237,7 +227,7 @@ async function parseShapes(csv: string): Promise<void> {
     } else {
       grouped.set(shapeId, [point]);
     }
-  }
+  });
 
   for (const [shapeId, points] of grouped) {
     points.sort((a, b) => a.seq - b.seq);
@@ -250,9 +240,8 @@ async function parseShapes(csv: string): Promise<void> {
 }
 
 async function parseStopTimes(csv: string): Promise<void> {
-  const rows = await parseCsv(csv);
   const stMap = getStopTimes();
-  for (const row of rows) {
+  await streamCsv(csv, (row) => {
     const tripId = row["trip_id"] ?? "";
     const entry: StopTimeEntry = {
       stopId: row["stop_id"] ?? "",
@@ -266,7 +255,7 @@ async function parseStopTimes(csv: string): Promise<void> {
     } else {
       stMap.set(tripId, [entry]);
     }
-  }
+  });
 
   for (const [, entries] of stMap) {
     entries.sort((a, b) => a.stopSequence - b.stopSequence);
@@ -274,9 +263,8 @@ async function parseStopTimes(csv: string): Promise<void> {
 }
 
 async function parseCalendar(csv: string): Promise<void> {
-  const rows = await parseCsv(csv);
   const calendars = getServiceCalendars();
-  for (const row of rows) {
+  await streamCsv(csv, (row) => {
     const cal: ServiceCalendar = {
       serviceId: row["service_id"] ?? "",
       days: [
@@ -292,19 +280,18 @@ async function parseCalendar(csv: string): Promise<void> {
       endDate: row["end_date"] ?? "",
     };
     calendars.set(cal.serviceId, cal);
-  }
+  });
 }
 
 async function parseCalendarDates(csv: string): Promise<void> {
-  const rows = await parseCsv(csv);
   const exceptions = getCalendarExceptions();
-  for (const row of rows) {
+  await streamCsv(csv, (row) => {
     exceptions.push({
       serviceId: row["service_id"] ?? "",
       date: row["date"] ?? "",
       exceptionType: parseInt(row["exception_type"] ?? "1", 10),
     });
-  }
+  });
 }
 
 function logStats(): void {
