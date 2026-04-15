@@ -44,7 +44,7 @@ const StopPopup: Component<StopPopupProps> = (props) => {
       for (const dep of deps.slice(0, 5)) {
         const delayText = formatDelay(dep.delay);
         html += `<li class="stop-popup__departure">`;
-        html += `<span class="stop-popup__line" style="background:#${escapeHtml(dep.routeColor)}">${escapeHtml(dep.routeShortName)}</span>`;
+        html += `<span class="stop-popup__line" style="background:${escapeHtml(dep.routeColor)}">${escapeHtml(dep.routeShortName)}</span>`;
         html += `<span class="stop-popup__headsign">${escapeHtml(dep.tripHeadsign)}</span>`;
         html += `<span class="stop-popup__time">${formatTime(dep.estimatedTime)}</span>`;
         if (dep.delay !== 0) {

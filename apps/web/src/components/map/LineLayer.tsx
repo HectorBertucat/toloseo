@@ -26,7 +26,7 @@ const LineLayer: Component<LineLayerProps> = (props) => {
     const lineId = selectedLine();
     if (!lineId) return "#6c63ff";
     const line = transitState.lines.find((l) => l.id === lineId);
-    return line ? `#${line.color}` : "#6c63ff";
+    return line?.color ?? "#6c63ff";
   }
 
   function ensureSourceAndLayer(): void {

@@ -1,5 +1,4 @@
-import { type Component, lazy } from "solid-js";
-import { Route } from "@solidjs/router";
+import { type Component, type ParentComponent, lazy } from "solid-js";
 import AlertBanner from "./components/panels/AlertBanner";
 
 const MapView = lazy(() => import("./components/map/TransitMap"));
@@ -10,17 +9,13 @@ const AnalyticsView = lazy(
   () => import("./components/analytics/AnalyticsView"),
 );
 
-const App: Component = () => {
+const AppLayout: ParentComponent = (props) => {
   return (
     <div class="app-layout">
       <AlertBanner />
-      <main class="app-main">
-        <Route path="/" component={MapView} />
-        <Route path="/board/:stopId?" component={DepartureBoard} />
-        <Route path="/analytics" component={AnalyticsView} />
-      </main>
+      <main class="app-main">{props.children}</main>
     </div>
   );
 };
 
-export default App;
+export { AppLayout, MapView, DepartureBoard, AnalyticsView };

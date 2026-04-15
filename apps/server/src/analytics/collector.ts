@@ -6,6 +6,11 @@ import { getCurrentServiceDate } from "../utils/time.js";
 
 let collectorTimer: ReturnType<typeof setInterval> | null = null;
 
+const RETENTION_DAYS = 90;
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
 export function startCollector(): void {
   logger.info(
     { intervalMs: config.analyticsSnapshotIntervalMs },
@@ -15,12 +20,19 @@ export function startCollector(): void {
     collectSnapshot,
     config.analyticsSnapshotIntervalMs,
   );
+
+  cleanupOldData();
+  cleanupTimer = setInterval(cleanupOldData, CLEANUP_INTERVAL_MS);
 }
 
 export function stopCollector(): void {
   if (collectorTimer) {
     clearInterval(collectorTimer);
     collectorTimer = null;
+  }
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
   }
 }
 
@@ -64,5 +76,24 @@ function collectSnapshot(): void {
     );
   } catch (err) {
     logger.error({ err }, "analytics snapshot collection failed");
+  }
+}
+
+function cleanupOldData(): void {
+  try {
+    const db = getDatabase();
+    const cutoff = Math.floor(Date.now() / 1000) - RETENTION_DAYS * 86400;
+    const result = db.run(
+      "DELETE FROM delay_snapshots WHERE recorded_at < ?",
+      [cutoff],
+    );
+    if (result.changes > 0) {
+      logger.info(
+        { deletedRows: result.changes, retentionDays: RETENTION_DAYS },
+        "cleaned up old analytics data",
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, "analytics cleanup failed");
   }
 }
