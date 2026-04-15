@@ -1,4 +1,7 @@
-{$DOMAIN:toloseo.example.com} {
+# Toloseo - served behind Cloudflare Tunnel
+# Caddy listens on :8080 (TLS handled by Cloudflare)
+# Tunnel public hostname → http://localhost:8080
+:8080 {
     encode zstd gzip
 
     handle /api/* {
