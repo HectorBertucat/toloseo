@@ -29,7 +29,10 @@ export async function loadGtfsStatic(): Promise<void> {
   const dataDir = join(config.dataDir, "gtfs");
   await mkdir(dataDir, { recursive: true });
 
-  const response = await fetch(config.gtfsStaticUrl);
+  const fileUrl = await resolveGtfsFileUrl();
+  logger.info({ url: fileUrl }, "resolved GTFS file URL");
+
+  const response = await fetch(fileUrl);
   if (!response.ok) {
     throw new Error(`GTFS download failed: ${response.status}`);
   }
@@ -41,6 +44,28 @@ export async function loadGtfsStatic(): Promise<void> {
   await parseAllFiles(files);
   setGtfsLoaded(true);
   logStats();
+}
+
+async function resolveGtfsFileUrl(): Promise<string> {
+  const apiUrl = config.gtfsDatasetApiUrl;
+  const resp = await fetch(apiUrl);
+  if (!resp.ok) {
+    throw new Error(`GTFS dataset API failed: ${resp.status}`);
+  }
+
+  const data = (await resp.json()) as {
+    results?: { file?: { url?: string; filename?: string } }[];
+  };
+
+  const record = data.results?.find((r) =>
+    r.file?.filename?.endsWith(".zip"),
+  );
+
+  if (!record?.file?.url) {
+    throw new Error("No ZIP file found in GTFS dataset API response");
+  }
+
+  return record.file.url;
 }
 
 async function extractZip(

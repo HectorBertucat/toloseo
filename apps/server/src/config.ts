@@ -14,9 +14,9 @@ function getEnvInt(key: string, fallback: number): number {
 export const config = {
   port: getEnvInt("PORT", 3000),
 
-  gtfsStaticUrl: getEnv(
-    "GTFS_STATIC_URL",
-    "https://data.toulouse-metropole.fr/api/explore/v2.1/catalog/datasets/tisseo-gtfs/files/4d39e30e2e1c6b9a85a1c362e4a9fc3e",
+  gtfsDatasetApiUrl: getEnv(
+    "GTFS_DATASET_API_URL",
+    "https://data.toulouse-metropole.fr/api/explore/v2.1/catalog/datasets/tisseo-gtfs/records?limit=1",
   ),
 
   gtfsRtUrl: getEnv(
