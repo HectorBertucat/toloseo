@@ -1,8 +1,8 @@
 import { render } from "solid-js/web";
-import { Router } from "@solidjs/router";
-import App from "./App";
-import "./styles/global.css";
+import { Router, Route } from "@solidjs/router";
+import { AppLayout, MapView, DepartureBoard, AnalyticsView } from "./App";
 import "./styles/variables.css";
+import "./styles/global.css";
 
 const root = document.getElementById("app");
 
@@ -12,8 +12,10 @@ if (!root) {
 
 render(
   () => (
-    <Router>
-      <App />
+    <Router root={AppLayout}>
+      <Route path="/" component={MapView} />
+      <Route path="/board/:stopId?" component={DepartureBoard} />
+      <Route path="/analytics" component={AnalyticsView} />
     </Router>
   ),
   root,

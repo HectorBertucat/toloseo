@@ -9,6 +9,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { connect, disconnect, updateBBox } from "../../services/sse-client";
 import { bboxFromBounds } from "../../utils/geo";
+import { theme } from "../../stores/ui";
 import LineSelector from "../panels/LineSelector";
 import NetworkStats from "../panels/NetworkStats";
 import ThemeToggle from "../ui/ThemeToggle";
@@ -21,6 +22,11 @@ import "../../styles/components/map.css";
 const TOULOUSE_CENTER: [number, number] = [1.4437, 43.6047];
 const DEFAULT_ZOOM = 13;
 const DEBOUNCE_MS = 300;
+
+const MAP_STYLES = {
+  dark: "https://tiles.openfreemap.org/styles/dark",
+  light: "https://tiles.openfreemap.org/styles/positron",
+} as const;
 
 const TransitMap: Component = () => {
   let containerRef: HTMLDivElement | undefined;
@@ -44,8 +50,7 @@ const TransitMap: Component = () => {
 
     map = new maplibregl.Map({
       container: containerRef,
-      style:
-        "https://tiles.openfreemap.org/styles/positron",
+      style: MAP_STYLES[theme()],
       center: TOULOUSE_CENTER,
       zoom: DEFAULT_ZOOM,
       minZoom: 10,
@@ -78,6 +83,13 @@ const TransitMap: Component = () => {
     const bounds = map.getBounds();
     const bbox = bboxFromBounds(bounds);
     connect(bbox);
+  });
+
+  createEffect(() => {
+    const currentTheme = theme();
+    if (map && mapReady()) {
+      map.setStyle(MAP_STYLES[currentTheme]);
+    }
   });
 
   onCleanup(() => {
