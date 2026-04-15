@@ -10,7 +10,7 @@ ExecStart=/usr/local/bin/bun run src/index.ts
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
-Environment=PORT=3000
+Environment=PORT=3001
 StandardOutput=journal
 StandardError=journal
 MemoryMax=512M
