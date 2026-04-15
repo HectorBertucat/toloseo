@@ -1,0 +1,68 @@
+name: Deploy Toloseo
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install server dependencies
+        run: cd apps/server && bun install
+
+      - name: Install web dependencies
+        run: cd apps/web && bun install
+
+      - name: Build frontend
+        run: cd apps/web && bun run build
+
+      - name: Type check server
+        run: cd apps/server && bun x tsc --noEmit
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy server
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            --exclude node_modules \
+            --exclude data \
+            apps/server/ "$VPS_USER@$VPS_HOST:/opt/toloseo/server/"
+
+      - name: Deploy shared types
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            shared/ "$VPS_USER@$VPS_HOST:/opt/toloseo/shared/"
+
+      - name: Deploy frontend build
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            apps/web/dist/ "$VPS_USER@$VPS_HOST:/opt/toloseo/web/dist/"
+
+      - name: Deploy configs
+        run: |
+          rsync -avz \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            deploy/ "$VPS_USER@$VPS_HOST:/opt/toloseo/deploy/"
+
+      - name: Install and restart
+        run: |
+          ssh -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" "cd /opt/toloseo/server && bun install --production && sudo systemctl restart toloseo"

@@ -1,0 +1,20 @@
+[Unit]
+Description=Toloseo Backend
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/opt/toloseo/server
+ExecStart=/usr/local/bin/bun run src/index.ts
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3000
+StandardOutput=journal
+StandardError=journal
+MemoryMax=512M
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

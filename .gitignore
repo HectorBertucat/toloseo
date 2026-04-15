@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment variables - NEVER COMMIT
+.env
+.env.*
+!.env.example
+
+# SQLite database
+*.db
+*.db-wal
+*.db-shm
+
+# GTFS data files (downloaded at runtime)
+apps/server/data/gtfs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Bun
+bun.lockb
+
+# PWA generated
+dev-dist/

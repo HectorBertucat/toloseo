@@ -1,0 +1,113 @@
+:root {
+  /* ── Accent palette ─────────────────────────────────────── */
+  --color-accent: #6c63ff;
+  --color-accent-hover: #7d75ff;
+  --color-accent-muted: rgba(108, 99, 255, 0.2);
+
+  /* ── Delay indicators ───────────────────────────────────── */
+  --color-on-time: #22c55e;
+  --color-minor-delay: #f59e0b;
+  --color-major-delay: #ef4444;
+
+  /* ── Status ─────────────────────────────────────────────── */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+
+  /* ── Spacing ────────────────────────────────────────────── */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* ── Typography ─────────────────────────────────────────── */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
+
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* ── Borders & Radius ───────────────────────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ────────────────────────────────────────────── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.5);
+
+  /* ── Z-index layers ─────────────────────────────────────── */
+  --z-map: 0;
+  --z-overlay: 100;
+  --z-sidebar: 200;
+  --z-popup: 300;
+  --z-alert: 400;
+  --z-modal: 500;
+  --z-toast: 600;
+
+  /* ── Transitions ────────────────────────────────────────── */
+  --transition-fast: 150ms ease;
+  --transition-base: 250ms ease;
+  --transition-slow: 400ms ease;
+
+  /* ── Layout ─────────────────────────────────────────────── */
+  --sidebar-width: 320px;
+  --header-height: 48px;
+  --bottom-sheet-peek: 72px;
+}
+
+/* ── Dark theme (default) ───────────────────────────────────── */
+[data-theme="dark"] {
+  --color-bg-primary: #0d0f1a;
+  --color-bg-secondary: #161829;
+  --color-bg-tertiary: #1e2035;
+  --color-bg-elevated: #252840;
+
+  --color-text-primary: #e8e6f0;
+  --color-text-secondary: #a09cb0;
+  --color-text-tertiary: #6e6a80;
+  --color-text-inverse: #0d0f1a;
+
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-hover: rgba(255, 255, 255, 0.15);
+
+  --color-glass: rgba(13, 15, 26, 0.85);
+  --color-glass-hover: rgba(13, 15, 26, 0.92);
+}
+
+/* ── Light theme ────────────────────────────────────────────── */
+[data-theme="light"] {
+  --color-bg-primary: #f5f5f7;
+  --color-bg-secondary: #ffffff;
+  --color-bg-tertiary: #eeeef0;
+  --color-bg-elevated: #ffffff;
+
+  --color-text-primary: #1a1a2e;
+  --color-text-secondary: #555570;
+  --color-text-tertiary: #8888a0;
+  --color-text-inverse: #ffffff;
+
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-hover: rgba(0, 0, 0, 0.15);
+
+  --color-glass: rgba(245, 245, 247, 0.85);
+  --color-glass-hover: rgba(245, 245, 247, 0.92);
+}

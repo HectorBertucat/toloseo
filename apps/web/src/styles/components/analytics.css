@@ -1,0 +1,249 @@
+/* ── Analytics View ─────────────────────────────────────────── */
+
+.analytics-view {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--color-bg-primary);
+  padding: var(--space-xl);
+}
+
+.analytics-view__header {
+  margin-bottom: var(--space-xl);
+}
+
+.analytics-view__header h1 {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+}
+
+.analytics-view__error {
+  padding: var(--space-lg);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-md);
+  color: var(--color-error);
+}
+
+.analytics-view__loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+/* ── Grid layout ──────────────────────────────────────────── */
+
+.analytics-view__grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+/* ── Summary cards ────────────────────────────────────────── */
+
+.analytics-view__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-md);
+}
+
+.analytics-view__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-lg);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.analytics-view__stat-value {
+  font-size: var(--text-3xl);
+  font-weight: var(--font-bold);
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-view__stat-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-xs);
+}
+
+/* ── Sections ─────────────────────────────────────────────── */
+
+.analytics-view__section {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+.analytics-view__section h2 {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-md);
+}
+
+/* ── Reliability grid ─────────────────────────────────────── */
+
+.analytics-view__reliability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-md);
+}
+
+/* ── Delay Chart ──────────────────────────────────────────── */
+
+.delay-chart {
+  width: 100%;
+}
+
+.delay-chart__empty {
+  text-align: center;
+  color: var(--color-text-tertiary);
+  padding: var(--space-xl);
+}
+
+.delay-chart__bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.delay-chart__bar-group {
+  display: grid;
+  grid-template-columns: 36px 1fr 50px;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.delay-chart__label {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.delay-chart__bar-container {
+  height: 16px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.delay-chart__bar {
+  height: 100%;
+  border-radius: var(--radius-sm);
+  transition: width var(--transition-base);
+}
+
+.delay-chart__value {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Reliability Card ─────────────────────────────────────── */
+
+.reliability-card {
+  padding: var(--space-md);
+  border-radius: var(--radius-lg);
+}
+
+.reliability-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+}
+
+.reliability-card__route {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+}
+
+.reliability-card__score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: var(--space-md) 0;
+}
+
+.reliability-card__percent {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.reliability-card__label {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.reliability-card__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-sm);
+}
+
+.reliability-card__detail {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-xs);
+}
+
+.reliability-card__detail-label {
+  color: var(--color-text-secondary);
+}
+
+.reliability-card__detail-value {
+  font-weight: var(--font-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Trend Badge ──────────────────────────────────────────── */
+
+.trend-badge {
+  font-size: var(--text-xs);
+}
+
+.trend-badge--up {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--color-on-time);
+}
+
+.trend-badge--down {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-major-delay);
+}
+
+.trend-badge--stable {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--color-minor-delay);
+}
+
+/* ── Skeleton animation ───────────────────────────────────── */
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ── Responsive ───────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .analytics-view {
+    padding: var(--space-md);
+  }
+
+  .analytics-view__summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
