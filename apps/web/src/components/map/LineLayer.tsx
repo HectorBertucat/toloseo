@@ -12,12 +12,14 @@ const SOURCE_ID = "line-shape-source";
 const LAYER_ID = "line-shape-layer";
 
 const LineLayer: Component<LineLayerProps> = (props) => {
+  let lastShapeData: GeoJSON.FeatureCollection | null = null;
+  let lastColor = "#6c63ff";
+
   const [shape] = createResource(selectedLine, async (lineId) => {
     if (!lineId) return null;
     try {
       return await getLineShape(lineId);
     } catch {
-      console.warn(`Failed to load shape for line: ${lineId}`);
       return null;
     }
   });
@@ -29,65 +31,53 @@ const LineLayer: Component<LineLayerProps> = (props) => {
     return line?.color ?? "#6c63ff";
   }
 
-  function ensureSourceAndLayer(): void {
+  function removeAll(): void {
     const { map } = props;
+    if (map.getLayer(LAYER_ID)) map.removeLayer(LAYER_ID);
+    if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
+  }
 
-    if (!map.getSource(SOURCE_ID)) {
-      map.addSource(SOURCE_ID, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-    }
+  function render(shapeData: GeoJSON.FeatureCollection, color: string): void {
+    const { map } = props;
+    removeAll();
 
-    if (!map.getLayer(LAYER_ID)) {
-      const beforeLayer = map.getLayer("stops-clusters") ? "stops-clusters" : undefined;
-      map.addLayer(
-        {
-          id: LAYER_ID,
-          type: "line",
-          source: SOURCE_ID,
-          layout: {
-            "line-join": "round",
-            "line-cap": "round",
-          },
-          paint: {
-            "line-color": getLineColor(),
-            "line-width": 4,
-            "line-opacity": 0.85,
-          },
-        },
-        beforeLayer,
-      );
-    }
+    map.addSource(SOURCE_ID, { type: "geojson", data: shapeData });
+    const beforeLayer = map.getLayer("stops-clusters") ? "stops-clusters" : undefined;
+    map.addLayer({
+      id: LAYER_ID,
+      type: "line",
+      source: SOURCE_ID,
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": color, "line-width": 5, "line-opacity": 0.85 },
+    }, beforeLayer);
   }
 
   createEffect(() => {
     const lineShape = shape();
-    ensureSourceAndLayer();
-
-    const source = props.map.getSource(SOURCE_ID);
-    if (!source || !("setData" in source)) return;
-
-    const geoSource = source as maplibregl.GeoJSONSource;
+    const color = getLineColor();
+    lastColor = color;
 
     if (!lineShape || !selectedLine()) {
-      geoSource.setData({ type: "FeatureCollection", features: [] });
+      lastShapeData = null;
+      removeAll();
       return;
     }
 
-    geoSource.setData({
+    lastShapeData = {
       type: "FeatureCollection",
       features: [lineShape as GeoJSON.Feature],
-    });
+    };
 
-    props.map.setPaintProperty(LAYER_ID, "line-color", getLineColor());
+    render(lastShapeData, color);
   });
 
-  onCleanup(() => {
-    const { map } = props;
-    if (map.getLayer(LAYER_ID)) map.removeLayer(LAYER_ID);
-    if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
+  props.map.on("style.load", () => {
+    if (lastShapeData) {
+      setTimeout(() => render(lastShapeData!, lastColor), 50);
+    }
   });
+
+  onCleanup(() => removeAll());
 
   return null;
 };

@@ -29,20 +29,30 @@
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#0d0f1a" />
 
-    <!-- System font stack preload -->
     <style>
-      html,
-      body {
+      html, body {
         margin: 0;
         padding: 0;
         height: 100%;
-        background: #0d0f1a;
-        color: #e8e6f0;
-        font-family:
-          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, sans-serif;
+        background: #0f1117;
+        color: #e4e6ef;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       }
+      html[data-theme="light"] body { background: #f8f9fb; color: #1a1d27; }
+      #app { height: 100%; }
+      /* Prevent FOUC: hide until SolidJS hydrates */
+      .app-layout { opacity: 0; animation: fadeIn 0.2s ease-out 0.1s forwards; }
+      @keyframes fadeIn { to { opacity: 1; } }
     </style>
+    <!-- Apply theme before render to prevent flash -->
+    <script>
+      (function() {
+        var t = localStorage.getItem('toloseo-theme');
+        if (t === 'light' || t === 'dark') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

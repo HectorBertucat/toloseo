@@ -36,6 +36,7 @@ const TransitMap: Component = () => {
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   const [mapReady, setMapReady] = createSignal(false);
+  const [stopsLoaded, setStopsLoaded] = createSignal(false);
 
   function handleMoveEnd(): void {
     if (debounceTimer) clearTimeout(debounceTimer);
@@ -51,6 +52,7 @@ const TransitMap: Component = () => {
     try {
       const stops = await getStops();
       setStops(stops);
+      setStopsLoaded(true);
     } catch (err) {
       console.error("Failed to load stops:", err);
     }
@@ -88,6 +90,11 @@ const TransitMap: Component = () => {
       setMapReady(true);
       handleMoveEnd();
       loadStops();
+
+      // Expose for debugging in dev
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__map = map;
+      }
     });
 
     map.on("moveend", handleMoveEnd);
@@ -117,7 +124,7 @@ const TransitMap: Component = () => {
       {mapReady() && map && (
         <>
           <VehicleMarkers map={map} />
-          <StopMarkers map={map} />
+          <StopMarkers map={map} ready={stopsLoaded()} />
           <LineLayer map={map} />
           <StopPopup map={map} />
         </>

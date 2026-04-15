@@ -1,6 +1,6 @@
 import { type Component, createEffect, onCleanup } from "solid-js";
 import type maplibregl from "maplibre-gl";
-import { getVehicleList } from "../../stores/transit";
+import { transitState } from "../../stores/transit";
 import { delayColor } from "../../utils/format";
 import type { Vehicle } from "@shared/types";
 
@@ -73,7 +73,8 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
   }
 
   createEffect(() => {
-    const vehicles = getVehicleList();
+    const vehiclesRecord = transitState.vehicles;
+    const vehicles = Object.values(vehiclesRecord);
     ensureSourceAndLayers();
 
     const source = props.map.getSource(SOURCE_ID);
@@ -81,6 +82,17 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
       (source as maplibregl.GeoJSONSource).setData(
         vehiclesToGeoJSON(vehicles),
       );
+    }
+  });
+
+  props.map.on("style.load", () => {
+    const vehicles = Object.values(transitState.vehicles);
+    if (!props.map.getSource(SOURCE_ID)) {
+      ensureSourceAndLayers();
+      const source = props.map.getSource(SOURCE_ID);
+      if (source && "setData" in source) {
+        (source as maplibregl.GeoJSONSource).setData(vehiclesToGeoJSON(vehicles));
+      }
     }
   });
 
