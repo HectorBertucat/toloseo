@@ -157,8 +157,8 @@ const LineSelector: Component = () => {
                         <span
                           class="line-selector__badge"
                           style={{
-                            "background-color": `#${line.color}`,
-                            color: `#${line.textColor}`,
+                            "background-color": line.color,
+                            color: line.textColor,
                           }}
                         >
                           {line.shortName}

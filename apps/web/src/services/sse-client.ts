@@ -12,10 +12,7 @@ let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 function buildStreamUrl(bbox?: BBox): string {
   const url = new URL("/api/stream", window.location.origin);
   if (bbox) {
-    url.searchParams.set("minLon", String(bbox.minLon));
-    url.searchParams.set("minLat", String(bbox.minLat));
-    url.searchParams.set("maxLon", String(bbox.maxLon));
-    url.searchParams.set("maxLat", String(bbox.maxLat));
+    url.searchParams.set("bbox", `${bbox.minLon},${bbox.minLat},${bbox.maxLon},${bbox.maxLat}`);
   }
   return url.toString();
 }
@@ -47,12 +44,15 @@ function connect(bbox?: BBox): void {
     setConnectionStatus("connected");
   };
 
-  eventSource.onmessage = (event: MessageEvent<string>) => {
+  const handleEvent = (event: MessageEvent<string>) => {
     const parsed = parseEvent(event.data);
-    if (parsed) {
-      handleSSEEvent(parsed);
-    }
+    if (parsed) handleSSEEvent(parsed);
   };
+
+  eventSource.addEventListener("init", handleEvent);
+  eventSource.addEventListener("vehicles", handleEvent);
+  eventSource.addEventListener("alerts", handleEvent);
+  eventSource.addEventListener("heartbeat", handleEvent);
 
   eventSource.onerror = () => {
     setConnectionStatus("error");

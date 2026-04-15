@@ -81,7 +81,7 @@ const DepartureBoard: Component = () => {
                   <span
                     class="departure-board__line-badge"
                     style={{
-                      "background-color": `#${deps[0]?.routeColor ?? "666"}`,
+                      "background-color": deps[0]?.routeColor ?? "#666",
                     }}
                   >
                     {deps[0]?.routeShortName ?? "?"}
