@@ -47,12 +47,15 @@
 - GTFS-RT Alerts: `https://api.tisseo.fr/opendata/gtfsrt/Alert.pb`
 - Calendar: data.gouv.fr (school holidays zone C)
 
-## VPS
+## Production
 
+- URL: https://toloseo.hectorb.fr
 - Server: Hetzner VPS (Ubuntu 24.04)
-- IP: Managed via Cloudflare (not exposed directly)
+- Access: Cloudflare Tunnel (no ports exposed, IP not public)
 - Deploy path: `/opt/toloseo/`
-- Process: systemd service `toloseo`
+- Process: systemd service `toloseo` (port 3001)
+- Caddy: port 8080 (reverse proxy + static files)
+- Tunnel: systemd service `cloudflared-toloseo`
 - User: `deploy` (non-root)
 
 ## CI/CD
