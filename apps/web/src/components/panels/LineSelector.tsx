@@ -22,7 +22,7 @@ import TrendBadge from "../analytics/TrendBadge";
 import "../../styles/components/line-selector.css";
 import type { TransitLine, TransitMode } from "@shared/types";
 
-type BottomSheetState = "collapsed" | "peek" | "full";
+type BottomSheetState = "peek" | "full";
 
 const MODE_ORDER: TransitMode[] = ["metro", "tram", "cable", "bus"];
 
@@ -79,11 +79,7 @@ const LineSelector: Component = () => {
   }
 
   function handleSheetToggle(): void {
-    setSheetState((prev) => {
-      if (prev === "collapsed") return "peek";
-      if (prev === "peek") return "full";
-      return "collapsed";
-    });
+    setSheetState((prev) => (prev === "peek" ? "full" : "peek"));
   }
 
   return (

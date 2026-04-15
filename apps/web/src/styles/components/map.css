@@ -150,14 +150,31 @@
 
 @media (max-width: 768px) {
   .network-stats {
-    bottom: calc(var(--bottom-sheet-peek) + var(--space-md));
-    gap: var(--space-md);
-    padding: var(--space-xs) var(--space-md);
+    bottom: calc(var(--bottom-sheet-peek) + var(--space-sm));
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
     font-size: var(--text-xs);
+  }
+
+  .network-stats__label {
+    display: none;
   }
 
   .transit-map__theme-toggle {
     top: var(--space-sm);
-    right: var(--space-sm);
+    left: var(--space-sm);
+    right: auto;
+  }
+
+  /* Hide zoom and compass controls on mobile — pinch to zoom */
+  .transit-map__container .maplibregl-ctrl-zoom-in,
+  .transit-map__container .maplibregl-ctrl-zoom-out,
+  .transit-map__container .maplibregl-ctrl-compass {
+    display: none;
+  }
+
+  /* Hide the navigation control group entirely (zoom + compass) */
+  .transit-map__container .maplibregl-ctrl-group:has(.maplibregl-ctrl-zoom-in) {
+    display: none;
   }
 }

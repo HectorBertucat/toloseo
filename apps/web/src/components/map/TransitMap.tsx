@@ -76,7 +76,11 @@ const TransitMap: Component = () => {
       "bottom-right",
     );
 
-    map.addControl(new maplibregl.NavigationControl(), "bottom-right");
+    const isDesktop = window.innerWidth >= 768;
+
+    if (isDesktop) {
+      map.addControl(new maplibregl.NavigationControl(), "bottom-right");
+    }
 
     map.addControl(
       new maplibregl.GeolocateControl({

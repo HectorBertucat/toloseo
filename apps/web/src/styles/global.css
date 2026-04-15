@@ -13,6 +13,7 @@ body,
   height: 100%;
   width: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
@@ -23,6 +24,21 @@ body {
   background-color: var(--color-bg-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+@media (max-width: 768px) {
+  html,
+  body,
+  #app {
+    position: fixed;
+    touch-action: none;
+  }
+
+  .app-layout,
+  .app-main {
+    height: 100%;
+    overflow: hidden;
+  }
 }
 
 /* ── Links ────────────────────────────────────────────────── */
