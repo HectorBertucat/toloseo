@@ -1,23 +1,40 @@
 /* ── Alert Banner ──────────────────────────────────────────── */
+/* Compact floating pill at top-right — unobtrusive until clicked. */
 
 .alert-banner {
-  flex-shrink: 0;
+  position: absolute;
+  top: var(--space-sm);
+  right: 60px;
   z-index: var(--z-alert);
+  max-width: min(420px, calc(100vw - 80px));
+  border-radius: var(--radius-full);
+  background: var(--color-glass);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  transition: border-radius 200ms ease;
 }
 
-.alert-banner[data-severity="error"] {
-  background: rgba(239, 68, 68, 0.15);
-  border-bottom: 2px solid var(--color-error);
+.alert-banner:has(.alert-banner__details) {
+  border-radius: var(--radius-lg);
+  right: var(--space-md);
+  left: var(--space-md);
+  max-width: 480px;
+  margin-left: auto;
 }
 
-.alert-banner[data-severity="warning"] {
-  background: rgba(245, 158, 11, 0.15);
-  border-bottom: 2px solid var(--color-warning);
+.alert-banner[data-severity="error"] .alert-banner__icon {
+  color: var(--color-error);
 }
 
-.alert-banner[data-severity="info"] {
-  background: rgba(59, 130, 246, 0.15);
-  border-bottom: 2px solid var(--color-info);
+.alert-banner[data-severity="warning"] .alert-banner__icon {
+  color: var(--color-warning);
+}
+
+.alert-banner[data-severity="info"] .alert-banner__icon {
+  color: var(--color-info);
 }
 
 /* ── Summary bar ──────────────────────────────────────────── */
@@ -27,29 +44,36 @@
   align-items: center;
   gap: var(--space-sm);
   width: 100%;
-  padding: var(--space-sm) var(--space-md);
-  font-size: var(--text-sm);
+  padding: 6px var(--space-md);
+  font-size: var(--text-xs);
   font-weight: var(--font-medium);
   color: var(--color-text-primary);
   text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
 }
 
 .alert-banner__summary:hover {
-  opacity: 0.9;
+  background: var(--color-glass-hover);
 }
 
 .alert-banner__icon {
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   flex-shrink: 0;
+  line-height: 1;
 }
 
 .alert-banner__count {
   flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .alert-banner__chevron {
-  font-size: var(--text-xs);
-  color: var(--color-text-secondary);
+  font-size: 10px;
+  color: var(--color-text-tertiary);
 }
 
 /* ── Expanded details ─────────────────────────────────────── */

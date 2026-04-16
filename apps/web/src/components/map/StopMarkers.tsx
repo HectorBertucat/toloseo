@@ -210,28 +210,42 @@ const StopMarkers: Component<StopMarkersProps> = (props) => {
     interactionsSetup = true;
     const { map } = props;
 
-    const onStopClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-      const id = e.features?.[0]?.properties?.["id"] as string | undefined;
-      if (id) setSelectedStop(id);
-    };
-
-    map.on("click", UNCLUSTERED_LAYER_ID, onStopClick);
-    map.on("click", HIGHLIGHT_LAYER_ID, onStopClick);
-
-    map.on("click", CLUSTER_LAYER_ID, (e) => {
-      const feature = e.features?.[0];
-      if (!feature) return;
-      const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource;
-      source.getClusterExpansionZoom(feature.properties?.["cluster_id"] as number).then((zoom) => {
-        const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
-        map.easeTo({ center: coords, zoom });
+    // Global click handler that queries rendered features on every click.
+    // This is resilient to layers being added/removed during re-renders.
+    map.on("click", (e) => {
+      const features = map.queryRenderedFeatures(e.point, {
+        layers: [HIGHLIGHT_LAYER_ID, UNCLUSTERED_LAYER_ID, CLUSTER_LAYER_ID].filter(
+          (id) => map.getLayer(id),
+        ),
       });
+
+      if (features.length === 0) return;
+      const feature = features[0]!;
+      const props_ = feature.properties ?? {};
+
+      if (props_["cluster"]) {
+        const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+        if (source) {
+          source.getClusterExpansionZoom(props_["cluster_id"] as number).then((zoom) => {
+            const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+            map.easeTo({ center: coords, zoom });
+          });
+        }
+        return;
+      }
+
+      const id = props_["id"] as string | undefined;
+      if (id) setSelectedStop(id);
     });
 
-    for (const layer of [UNCLUSTERED_LAYER_ID, CLUSTER_LAYER_ID, HIGHLIGHT_LAYER_ID]) {
-      map.on("mouseenter", layer, () => { map.getCanvas().style.cursor = "pointer"; });
-      map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; });
-    }
+    map.on("mousemove", (e) => {
+      const features = map.queryRenderedFeatures(e.point, {
+        layers: [HIGHLIGHT_LAYER_ID, UNCLUSTERED_LAYER_ID, CLUSTER_LAYER_ID].filter(
+          (id) => map.getLayer(id),
+        ),
+      });
+      map.getCanvas().style.cursor = features.length > 0 ? "pointer" : "";
+    });
   }
 
   function renderAll(): void {

@@ -45,13 +45,12 @@ const LineSelector: Component = () => {
     try {
       const lines = await getLines();
       setLines(lines);
-      // Default: preselect metro A and B on first visit
+      // Default: preselect the tram T1 (most active line with live data)
+      // Metro A/B are not in the GTFS-RT feed per Tisseo docs
       const hasVisited = localStorage.getItem("toloseo-visited");
       if (!hasVisited) {
-        const metros = lines.filter((l) => l.mode === "metro");
-        for (const line of metros) {
-          toggleLineSelection(line.id);
-        }
+        const tram = lines.find((l) => l.mode === "tram" && l.shortName === "T1");
+        if (tram) toggleLineSelection(tram.id);
         localStorage.setItem("toloseo-visited", "1");
       }
     } catch (err) {

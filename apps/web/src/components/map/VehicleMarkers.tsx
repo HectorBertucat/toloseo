@@ -1,6 +1,7 @@
 import { type Component, createEffect, onCleanup } from "solid-js";
 import type maplibregl from "maplibre-gl";
 import { transitState } from "../../stores/transit";
+import { selectedLineIds } from "../../stores/ui";
 import { delayColor } from "../../utils/format";
 import type { Vehicle } from "@shared/types";
 
@@ -12,88 +13,121 @@ const SOURCE_ID = "vehicles-source";
 const CIRCLE_LAYER_ID = "vehicles-circle";
 const HALO_LAYER_ID = "vehicles-halo";
 
+interface VehicleProps {
+  id: string;
+  routeId: string;
+  bearing: number;
+  delay: number;
+  color: string;
+  haloColor: string;
+  selected: number;
+}
+
 function vehiclesToGeoJSON(
   vehicles: Vehicle[],
-): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  selectedIds: Set<string>,
+  lineColorsById: Map<string, string>,
+): GeoJSON.FeatureCollection<GeoJSON.Point, VehicleProps> {
   return {
     type: "FeatureCollection",
-    features: vehicles.map((v) => ({
-      type: "Feature" as const,
-      id: v.id,
-      geometry: {
-        type: "Point" as const,
-        coordinates: [v.lon, v.lat],
-      },
-      properties: {
+    features: vehicles.map((v) => {
+      const isSelected = selectedIds.size === 0 || selectedIds.has(v.routeId);
+      const routeColor = lineColorsById.get(v.routeId) ?? "#6c63ff";
+      return {
+        type: "Feature" as const,
         id: v.id,
-        routeId: v.routeId,
-        label: v.label,
-        bearing: v.bearing,
-        delay: v.delay,
-        haloColor: delayColor(v.delay),
-      },
-    })),
+        geometry: { type: "Point" as const, coordinates: [v.lon, v.lat] },
+        properties: {
+          id: v.id,
+          routeId: v.routeId,
+          bearing: v.bearing,
+          delay: v.delay,
+          color: routeColor,
+          haloColor: delayColor(v.delay),
+          selected: isSelected ? 1 : 0,
+        },
+      };
+    }),
   };
 }
 
+function addSourceAndLayers(map: maplibregl.Map): void {
+  if (map.getSource(SOURCE_ID)) return;
+
+  map.addSource(SOURCE_ID, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+
+  map.addLayer({
+    id: HALO_LAYER_ID,
+    type: "circle",
+    source: SOURCE_ID,
+    paint: {
+      "circle-radius": ["case", ["==", ["get", "selected"], 1], 14, 8],
+      "circle-color": ["get", "haloColor"],
+      "circle-opacity": [
+        "case",
+        ["==", ["get", "selected"], 1], 0.35,
+        0.1,
+      ],
+      "circle-blur": 0.6,
+    },
+  });
+
+  map.addLayer({
+    id: CIRCLE_LAYER_ID,
+    type: "circle",
+    source: SOURCE_ID,
+    paint: {
+      "circle-radius": ["case", ["==", ["get", "selected"], 1], 7, 4],
+      "circle-color": ["get", "color"],
+      "circle-stroke-width": ["case", ["==", ["get", "selected"], 1], 2, 1],
+      "circle-stroke-color": "#ffffff",
+      "circle-opacity": [
+        "case",
+        ["==", ["get", "selected"], 1], 1,
+        0.35,
+      ],
+      "circle-stroke-opacity": [
+        "case",
+        ["==", ["get", "selected"], 1], 1,
+        0.3,
+      ],
+    },
+  });
+}
+
 const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
-  function ensureSourceAndLayers(): void {
+  function update(): void {
     const { map } = props;
+    const vehicles = Object.values(transitState.vehicles) as Vehicle[];
+    const selectedIds = new Set(selectedLineIds());
+    const colorMap = new Map<string, string>();
+    for (const line of transitState.lines) {
+      colorMap.set(line.id, line.color);
+    }
 
-    if (map.getSource(SOURCE_ID)) return;
+    if (!map.getSource(SOURCE_ID)) {
+      addSourceAndLayers(map);
+    }
 
-    map.addSource(SOURCE_ID, {
-      type: "geojson",
-      data: { type: "FeatureCollection", features: [] },
-    });
-
-    map.addLayer({
-      id: HALO_LAYER_ID,
-      type: "circle",
-      source: SOURCE_ID,
-      paint: {
-        "circle-radius": 10,
-        "circle-color": ["get", "haloColor"],
-        "circle-opacity": 0.25,
-        "circle-blur": 0.5,
-      },
-    });
-
-    map.addLayer({
-      id: CIRCLE_LAYER_ID,
-      type: "circle",
-      source: SOURCE_ID,
-      paint: {
-        "circle-radius": 5,
-        "circle-color": "#ffffff",
-        "circle-stroke-width": 2,
-        "circle-stroke-color": ["get", "haloColor"],
-      },
-    });
+    const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+    if (source) {
+      source.setData(vehiclesToGeoJSON(vehicles, selectedIds, colorMap));
+    }
   }
 
   createEffect(() => {
-    const vehiclesRecord = transitState.vehicles;
-    const vehicles = Object.values(vehiclesRecord);
-    ensureSourceAndLayers();
-
-    const source = props.map.getSource(SOURCE_ID);
-    if (source && "setData" in source) {
-      (source as maplibregl.GeoJSONSource).setData(
-        vehiclesToGeoJSON(vehicles),
-      );
-    }
+    // Track dependencies: vehicles, lines, selection
+    void transitState.vehicles;
+    void transitState.lines;
+    void selectedLineIds();
+    update();
   });
 
   props.map.on("style.load", () => {
-    const vehicles = Object.values(transitState.vehicles);
-    if (!props.map.getSource(SOURCE_ID)) {
-      ensureSourceAndLayers();
-      const source = props.map.getSource(SOURCE_ID);
-      if (source && "setData" in source) {
-        (source as maplibregl.GeoJSONSource).setData(vehiclesToGeoJSON(vehicles));
-      }
-    }
+    setTimeout(update, 50);
   });
 
   onCleanup(() => {
