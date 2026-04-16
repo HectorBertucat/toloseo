@@ -25,12 +25,86 @@ interface StopFeatureProperties {
   color: string;
 }
 
+const GROUP_RADIUS_M = 100;
+
+function normalizeStopName(name: string): string {
+  return name
+    .toLocaleLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function haversineMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/**
+ * Deduplicates stops that share the same normalized name and sit within
+ * GROUP_RADIUS_M of each other (both directions of a platform, etc.).
+ * Returns one representative stop per group (center of mass).
+ */
+function dedupeStops(stops: Stop[]): Stop[] {
+  const groups = new Map<string, Stop[]>();
+  for (const s of stops) {
+    const key = normalizeStopName(s.name);
+    let arr = groups.get(key);
+    if (!arr) {
+      arr = [];
+      groups.set(key, arr);
+    }
+    arr.push(s);
+  }
+
+  const out: Stop[] = [];
+  for (const arr of groups.values()) {
+    const buckets: Stop[][] = [];
+    for (const s of arr) {
+      const existing = buckets.find((b) => {
+        const first = b[0];
+        return (
+          first !== undefined &&
+          haversineMeters(s.lat, s.lon, first.lat, first.lon) <= GROUP_RADIUS_M
+        );
+      });
+      if (existing) existing.push(s);
+      else buckets.push([s]);
+    }
+    for (const bucket of buckets) {
+      if (bucket.length === 1) {
+        const only = bucket[0];
+        if (only) out.push(only);
+        continue;
+      }
+      const lat = bucket.reduce((sum, s) => sum + s.lat, 0) / bucket.length;
+      const lon = bucket.reduce((sum, s) => sum + s.lon, 0) / bucket.length;
+      const repr = bucket[0];
+      if (!repr) continue;
+      out.push({ ...repr, lat, lon });
+    }
+  }
+  return out;
+}
+
 function stopsToGeoJSON(
   stops: Stop[],
 ): GeoJSON.FeatureCollection<GeoJSON.Point, StopFeatureProperties> {
+  const deduped = dedupeStops(stops);
   return {
     type: "FeatureCollection",
-    features: stops.map((s) => ({
+    features: deduped.map((s) => ({
       type: "Feature" as const,
       geometry: { type: "Point" as const, coordinates: [s.lon, s.lat] },
       properties: {

@@ -63,6 +63,47 @@ export function registerStopRoutes(app: Hono): void {
   });
 }
 
+const GROUP_RADIUS_METERS = 100;
+
+function stopsInSameGroup(stopId: string): Set<string> {
+  const stops = getStops();
+  const root = stops.get(stopId);
+  const group = new Set<string>([stopId]);
+  if (!root?.name) return group;
+  const normName = normalizeStopName(root.name);
+  for (const [id, s] of stops) {
+    if (id === stopId) continue;
+    if (normalizeStopName(s.name) !== normName) continue;
+    if (haversineMeters(root.lat, root.lon, s.lat, s.lon) > GROUP_RADIUS_METERS) continue;
+    group.add(id);
+  }
+  return group;
+}
+
+function normalizeStopName(name: string): string {
+  return name
+    .toLocaleLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function haversineMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
 function computeDepartures(stopId: string): DepartureInfo[] {
   const stopTimesMap = getStopTimes();
   const trips = getTrips();
@@ -73,6 +114,7 @@ function computeDepartures(stopId: string): DepartureInfo[] {
   const activeServices = getActiveServicesForDate(serviceDate);
   const now = Date.now();
   const results: DepartureInfo[] = [];
+  const groupIds = stopsInSameGroup(stopId);
 
   // Index vehicles by tripId for quick lookup
   const vehicleByTrip = new Map<string, typeof vehicles extends Map<string, infer V> ? V : never>();
@@ -81,7 +123,7 @@ function computeDepartures(stopId: string): DepartureInfo[] {
   }
 
   for (const [tripId, times] of stopTimesMap) {
-    const stopTime = times.find((st) => st.stopId === stopId);
+    const stopTime = times.find((st) => groupIds.has(st.stopId));
     if (!stopTime) continue;
 
     const trip = trips.get(tripId);
@@ -94,10 +136,11 @@ function computeDepartures(stopId: string): DepartureInfo[] {
 
     const route = routes.get(trip.routeId);
 
-    // Look for a live RT prediction for THIS specific stop
+    // Look for a live RT prediction for any stop in the group (both
+    // directions of the same platform pair, handicap/regular duplicates…)
     const vehicle = vehicleByTrip.get(tripId);
     const predictions = vehicle ? predictionsMap.get(vehicle.id) : null;
-    const predForStop = predictions?.find((p) => p.stopId === stopId);
+    const predForStop = predictions?.find((p) => groupIds.has(p.stopId));
 
     let delay = 0;
     let estimatedMs = scheduledMs;
