@@ -22,7 +22,8 @@ import TrendBadge from "../analytics/TrendBadge";
 import "../../styles/components/line-selector.css";
 import type { TransitLine, TransitMode } from "@shared/types";
 
-type BottomSheetState = "peek" | "full";
+type BottomSheetState = "peek" | "mid" | "full";
+const SHEET_CYCLE: BottomSheetState[] = ["peek", "mid", "full"];
 
 const MODE_ORDER: TransitMode[] = ["metro", "tram", "cable", "bus"];
 
@@ -87,7 +88,35 @@ const LineSelector: Component = () => {
   }
 
   function handleSheetToggle(): void {
-    setSheetState((prev) => (prev === "peek" ? "full" : "peek"));
+    setSheetState((prev) => {
+      const idx = SHEET_CYCLE.indexOf(prev);
+      return SHEET_CYCLE[(idx + 1) % SHEET_CYCLE.length] ?? "peek";
+    });
+  }
+
+  function handleHandleDragStart(ev: PointerEvent): void {
+    const target = ev.currentTarget as HTMLElement;
+    target.setPointerCapture(ev.pointerId);
+    const startY = ev.clientY;
+    const startState = sheetState();
+
+    const onMove = (e: PointerEvent): void => {
+      const dy = e.clientY - startY;
+      // Negative dy = drag up, positive = drag down.
+      if (Math.abs(dy) < 24) return;
+      const idx = SHEET_CYCLE.indexOf(startState);
+      const next = dy < 0 ? Math.min(idx + 1, SHEET_CYCLE.length - 1) : Math.max(idx - 1, 0);
+      const nextState = SHEET_CYCLE[next];
+      if (nextState && nextState !== sheetState()) setSheetState(nextState);
+    };
+    const onUp = (): void => {
+      target.removeEventListener("pointermove", onMove);
+      target.removeEventListener("pointerup", onUp);
+      target.removeEventListener("pointercancel", onUp);
+    };
+    target.addEventListener("pointermove", onMove);
+    target.addEventListener("pointerup", onUp);
+    target.addEventListener("pointercancel", onUp);
   }
 
   return (
@@ -96,7 +125,12 @@ const LineSelector: Component = () => {
         class="line-selector line-selector--mobile"
         data-state={sheetState()}
       >
-        <button class="line-selector__handle" onClick={handleSheetToggle}>
+        <button
+          class="line-selector__handle"
+          onClick={handleSheetToggle}
+          onPointerDown={handleHandleDragStart}
+          aria-label={`Panneau ${sheetState()}`}
+        >
           <span class="line-selector__handle-bar" />
         </button>
         <SelectorContent />

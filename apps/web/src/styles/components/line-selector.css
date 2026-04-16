@@ -69,11 +69,20 @@
 }
 
 .line-selector--mobile[data-state="peek"] {
-  height: var(--bottom-sheet-peek);
+  height: 15vh;
+  min-height: 96px;
+}
+
+.line-selector--mobile[data-state="mid"] {
+  height: 50vh;
 }
 
 .line-selector--mobile[data-state="full"] {
-  height: 60vh;
+  height: 92vh;
+}
+
+.line-selector--mobile {
+  transition: height 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .line-selector__handle {
