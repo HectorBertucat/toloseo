@@ -40,6 +40,8 @@ function runMigrations(database: Database): void {
 
   if (currentVersion < 1) applyMigration1(database);
   if (currentVersion < 2) applyMigration2(database);
+  if (currentVersion < 3) applyMigration3(database);
+  if (currentVersion < 4) applyMigration4(database);
 }
 
 function getCurrentVersion(database: Database): number {
@@ -91,6 +93,42 @@ function applyMigration2(database: Database): void {
 
   database.run("INSERT INTO schema_version (version) VALUES (2)");
   logger.info("applied migration 2: calendar_context table");
+}
+
+function applyMigration3(database: Database): void {
+  database.run(
+    "ALTER TABLE delay_snapshots ADD COLUMN is_realtime INTEGER NOT NULL DEFAULT 0",
+  );
+  database.run("INSERT INTO schema_version (version) VALUES (3)");
+  logger.info("applied migration 3: delay_snapshots.is_realtime");
+}
+
+function applyMigration4(database: Database): void {
+  database.run(`
+    CREATE TABLE IF NOT EXISTS trip_observations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      recorded_at INTEGER NOT NULL,
+      trip_id TEXT NOT NULL,
+      route_id TEXT NOT NULL,
+      stop_id TEXT NOT NULL,
+      stop_sequence INTEGER NOT NULL,
+      scheduled_arrival INTEGER,
+      predicted_arrival INTEGER,
+      delay_seconds INTEGER,
+      day_type TEXT NOT NULL,
+      hour INTEGER NOT NULL,
+      is_vacation INTEGER DEFAULT 0,
+      is_holiday INTEGER DEFAULT 0
+    )
+  `);
+  database.run(
+    "CREATE INDEX IF NOT EXISTS idx_trip_obs_route_stop ON trip_observations (route_id, stop_id)",
+  );
+  database.run(
+    "CREATE INDEX IF NOT EXISTS idx_trip_obs_time ON trip_observations (recorded_at)",
+  );
+  database.run("INSERT INTO schema_version (version) VALUES (4)");
+  logger.info("applied migration 4: trip_observations table");
 }
 
 export function closeDatabase(): void {
