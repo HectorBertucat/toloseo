@@ -204,29 +204,39 @@ function processTripUpdate(
  * Toulouse's feed populates tripUpdate.delay with 0 but fills the real
  * delays in stopTimeUpdate[], so we MUST check those first.
  *
+ * The feed often retains stopTimeUpdates for stops already passed, with
+ * stale delay values. We MUST skip those — otherwise a trip that ran early
+ * an hour ago drags the displayed delay down by thousands of seconds.
+ *
  * Strategy:
- *   1. Pick the first stopTimeUpdate that has a non-zero delay (the
- *      earliest future stop where a delay is predicted).
- *   2. Fall back to the last stop's reported delay.
+ *   1. Pick the first FUTURE stopTimeUpdate with a non-zero delay.
+ *   2. Fall back to the last future stop's reported delay (even if 0).
  *   3. Fall back to tripUpdate.delay.
  */
+const PAST_STOP_TOLERANCE_S = 60;
+
 function extractDelay(
   tu: GtfsRealtimeBindings.transit_realtime.ITripUpdate,
 ): number {
   const updates = tu.stopTimeUpdate ?? [];
+  const nowS = Math.floor(Date.now() / 1000);
+  const cutoff = nowS - PAST_STOP_TOLERANCE_S;
 
-  // Look for any stop with a non-zero delay (most informative)
+  let lastFutureDelay: number | null = null;
   for (const stu of updates) {
+    const t = toNumber(stu.arrival?.time) || toNumber(stu.departure?.time);
+    if (t > 0 && t < cutoff) continue; // skip already-passed stops
+
     const a = stu.arrival?.delay;
     if (a != null && a !== 0) return a;
     const d = stu.departure?.delay;
     if (d != null && d !== 0) return d;
+
+    if (a != null) lastFutureDelay = a;
+    else if (d != null) lastFutureDelay = d;
   }
 
-  // No non-zero delay found: take the last reported stu delay (even if 0)
-  const last = updates[updates.length - 1];
-  if (last?.arrival?.delay != null) return last.arrival.delay;
-  if (last?.departure?.delay != null) return last.departure.delay;
+  if (lastFutureDelay != null) return lastFutureDelay;
 
   // Fallback: top-level trip delay
   if (tu.delay != null) return tu.delay;
