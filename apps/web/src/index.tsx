@@ -3,6 +3,7 @@ import { Router, Route } from "@solidjs/router";
 import { AppLayout, MapView, DepartureBoard, AnalyticsView } from "./App";
 import "./styles/variables.css";
 import "./styles/global.css";
+import "./styles/animations.css";
 
 const root = document.getElementById("app");
 

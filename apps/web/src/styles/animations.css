@@ -1,0 +1,77 @@
+/* ── Shared micro-animations ────────────────────────────────── */
+
+@keyframes popup-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes tap-ripple {
+  from {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.15);
+  }
+}
+
+/* Popup container fade + scale (StopPopup, VehiclePopup) */
+.toloseo-popup .maplibregl-popup-content {
+  animation: popup-in 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: center bottom;
+}
+
+/* Time / countdown cross-fade when the value changes.
+   Usage: wrap the countdown value in a span with a stable text key
+   (the CSS only provides the entrance animation). */
+.countdown-tick {
+  display: inline-block;
+  animation: fade-in-up 180ms ease-out both;
+}
+
+/* Generic press feedback on buttons */
+.press-ripple {
+  position: relative;
+  overflow: hidden;
+}
+
+.press-ripple::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.2);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.press-ripple:active::after {
+  animation: tap-ripple 300ms ease-out;
+}
+
+/* Respect user's reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .toloseo-popup .maplibregl-popup-content,
+  .countdown-tick,
+  .press-ripple:active::after {
+    animation: none !important;
+  }
+}

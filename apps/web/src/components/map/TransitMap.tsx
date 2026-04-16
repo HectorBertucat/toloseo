@@ -22,6 +22,7 @@ import StopPopup from "./StopPopup";
 import VehiclePopup from "./VehiclePopup";
 import MapLegend from "./MapLegend";
 import LocateButton from "./LocateButton";
+import CoachMarks from "../ui/CoachMarks";
 import "../../styles/components/map.css";
 
 const TOULOUSE_CENTER: [number, number] = [1.4437, 43.6047];
@@ -133,6 +134,7 @@ const TransitMap: Component = () => {
       )}
 
       <MapLegend />
+      <CoachMarks />
 
       <LineSelector />
       <NetworkStats />
