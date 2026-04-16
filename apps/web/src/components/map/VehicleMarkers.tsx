@@ -82,7 +82,14 @@ function addSourceAndLayers(map: maplibregl.Map): void {
     type: "circle",
     source: SOURCE_ID,
     paint: {
-      "circle-radius": ["case", ["==", ["get", "selected"], 1], 14, 8],
+      "circle-radius": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        11, ["case", ["==", ["get", "selected"], 1], 12, 7],
+        14, ["case", ["==", ["get", "selected"], 1], 14, 9],
+        17, ["case", ["==", ["get", "selected"], 1], 18, 12],
+      ],
       "circle-color": ["get", "haloColor"],
       "circle-opacity": [
         "case",
@@ -98,7 +105,14 @@ function addSourceAndLayers(map: maplibregl.Map): void {
     type: "circle",
     source: SOURCE_ID,
     paint: {
-      "circle-radius": ["case", ["==", ["get", "selected"], 1], 7, 4],
+      "circle-radius": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        11, ["case", ["==", ["get", "selected"], 1], 6, 3.5],
+        14, ["case", ["==", ["get", "selected"], 1], 8, 5],
+        17, ["case", ["==", ["get", "selected"], 1], 11, 9],
+      ],
       "circle-color": ["get", "color"],
       "circle-stroke-width": ["case", ["==", ["get", "selected"], 1], 2, 1],
       "circle-stroke-color": "#ffffff",
