@@ -4,20 +4,35 @@ import type { DelayByHour, ReliabilityScore, AnalyticsSummary, TrendData } from 
 
 const ON_TIME_THRESHOLD_SECONDS = 300;
 
-export function queryDelayByHour(routeId: string, days: number): DelayByHour[] {
+export function queryDelayByHour(routeId: string | null, days: number): DelayByHour[] {
   const db = getDatabase();
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
-  const rows = db.query(`
-    SELECT
-      CAST((recorded_at % 86400) / 3600 AS INTEGER) as hour,
-      AVG(delay_seconds) as avg_delay,
-      COUNT(*) as sample_count
-    FROM delay_snapshots
-    WHERE route_id = ? AND recorded_at >= ?
-    GROUP BY hour
-    ORDER BY hour
-  `).all(routeId, cutoff) as { hour: number; avg_delay: number; sample_count: number }[];
+  const rows = routeId
+    ? (db
+        .query(
+          `SELECT
+            CAST((recorded_at % 86400) / 3600 AS INTEGER) as hour,
+            AVG(delay_seconds) as avg_delay,
+            COUNT(*) as sample_count
+          FROM delay_snapshots
+          WHERE route_id = ? AND recorded_at >= ?
+          GROUP BY hour
+          ORDER BY hour`,
+        )
+        .all(routeId, cutoff) as { hour: number; avg_delay: number; sample_count: number }[])
+    : (db
+        .query(
+          `SELECT
+            CAST((recorded_at % 86400) / 3600 AS INTEGER) as hour,
+            AVG(delay_seconds) as avg_delay,
+            COUNT(*) as sample_count
+          FROM delay_snapshots
+          WHERE recorded_at >= ?
+          GROUP BY hour
+          ORDER BY hour`,
+        )
+        .all(cutoff) as { hour: number; avg_delay: number; sample_count: number }[]);
 
   return rows.map((row) => ({
     hour: row.hour,
@@ -25,6 +40,42 @@ export function queryDelayByHour(routeId: string, days: number): DelayByHour[] {
     p50Delay: Math.round(row.avg_delay),
     p90Delay: Math.round(row.avg_delay * 1.8),
     sampleCount: row.sample_count,
+  }));
+}
+
+export function queryAllReliability(days: number): ReliabilityScore[] {
+  const db = getDatabase();
+  const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+
+  const rows = db
+    .query(
+      `SELECT
+        route_id,
+        COUNT(*) as total_trips,
+        AVG(delay_seconds) as avg_delay,
+        MAX(delay_seconds) as max_delay,
+        SUM(CASE WHEN ABS(delay_seconds) <= ? THEN 1 ELSE 0 END) as on_time_count
+      FROM delay_snapshots
+      WHERE recorded_at >= ?
+      GROUP BY route_id
+      HAVING COUNT(*) > 10
+      ORDER BY on_time_count * 1.0 / total_trips DESC`,
+    )
+    .all(ON_TIME_THRESHOLD_SECONDS, cutoff) as {
+    route_id: string;
+    total_trips: number;
+    avg_delay: number | null;
+    max_delay: number | null;
+    on_time_count: number;
+  }[];
+
+  return rows.map((row) => ({
+    routeId: row.route_id,
+    onTimePercent: Math.round((row.on_time_count / row.total_trips) * 100),
+    avgDelay: Math.round(row.avg_delay ?? 0),
+    maxDelay: row.max_delay ?? 0,
+    totalTrips: row.total_trips,
+    period: `${days}d`,
   }));
 }
 

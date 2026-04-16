@@ -18,6 +18,8 @@ const [theme, setThemeSignal] = createSignal<Theme>(loadTheme());
 const [selectedLine, setSelectedLineSignal] = createSignal<string | null>(null);
 const [selectedLineIds, setSelectedLineIdsSignal] = createSignal<string[]>([]);
 const [selectedStop, setSelectedStop] = createSignal<string | null>(null);
+const [selectedVehicle, setSelectedVehicle] = createSignal<string | null>(null);
+const [followedVehicle, setFollowedVehicle] = createSignal<string | null>(null);
 const [sidebarOpen, setSidebarOpen] = createSignal(true);
 const [currentView, setCurrentView] = createSignal<CurrentView>("map");
 
@@ -71,6 +73,10 @@ export {
   isLineSelected,
   selectedStop,
   setSelectedStop,
+  selectedVehicle,
+  setSelectedVehicle,
+  followedVehicle,
+  setFollowedVehicle,
   sidebarOpen,
   setSidebarOpen,
   toggleSidebar,

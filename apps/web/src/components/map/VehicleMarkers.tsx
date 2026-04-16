@@ -1,7 +1,7 @@
 import { type Component, createEffect, onCleanup } from "solid-js";
 import type maplibregl from "maplibre-gl";
 import { transitState } from "../../stores/transit";
-import { selectedLineIds } from "../../stores/ui";
+import { selectedLineIds, setSelectedVehicle } from "../../stores/ui";
 import { delayColor } from "../../utils/format";
 import type { Vehicle } from "@shared/types";
 
@@ -99,6 +99,26 @@ function addSourceAndLayers(map: maplibregl.Map): void {
 }
 
 const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
+  let interactionsSetup = false;
+
+  function setupInteractions(): void {
+    if (interactionsSetup) return;
+    interactionsSetup = true;
+    const { map } = props;
+
+    map.on("click", CIRCLE_LAYER_ID, (e) => {
+      const id = e.features?.[0]?.properties?.["id"] as string | undefined;
+      if (id) setSelectedVehicle(id);
+    });
+
+    map.on("mouseenter", CIRCLE_LAYER_ID, () => {
+      map.getCanvas().style.cursor = "pointer";
+    });
+    map.on("mouseleave", CIRCLE_LAYER_ID, () => {
+      map.getCanvas().style.cursor = "";
+    });
+  }
+
   function update(): void {
     const { map } = props;
     const vehicles = Object.values(transitState.vehicles) as Vehicle[];
@@ -110,6 +130,7 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
 
     if (!map.getSource(SOURCE_ID)) {
       addSourceAndLayers(map);
+      setupInteractions();
     }
 
     const source = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;

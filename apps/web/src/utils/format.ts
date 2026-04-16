@@ -1,5 +1,10 @@
-function formatTime(timestamp: number): string {
-  const date = new Date(timestamp * 1000);
+/**
+ * Format a timestamp (in milliseconds, as returned by the backend) to HH:MM.
+ * The backend returns epoch millis; SSE vehicle timestamps are unix seconds
+ * and should pass `timestamp * 1000` at the call site.
+ */
+function formatTime(timestampMs: number): string {
+  const date = new Date(timestampMs);
   return date.toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",

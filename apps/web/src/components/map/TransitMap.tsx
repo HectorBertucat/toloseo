@@ -19,6 +19,8 @@ import VehicleMarkers from "./VehicleMarkers";
 import StopMarkers from "./StopMarkers";
 import LineLayer from "./LineLayer";
 import StopPopup from "./StopPopup";
+import VehiclePopup from "./VehiclePopup";
+import MapLegend from "./MapLegend";
 import "../../styles/components/map.css";
 
 const TOULOUSE_CENTER: [number, number] = [1.4437, 43.6047];
@@ -131,8 +133,11 @@ const TransitMap: Component = () => {
           <StopMarkers map={map} ready={stopsLoaded()} />
           <LineLayer map={map} />
           <StopPopup map={map} />
+          <VehiclePopup map={map} />
         </>
       )}
+
+      <MapLegend />
 
       <LineSelector />
       <NetworkStats />
