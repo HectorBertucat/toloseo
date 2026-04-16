@@ -21,6 +21,7 @@ import LineLayer from "./LineLayer";
 import StopPopup from "./StopPopup";
 import VehiclePopup from "./VehiclePopup";
 import MapLegend from "./MapLegend";
+import LocateButton from "./LocateButton";
 import "../../styles/components/map.css";
 
 const TOULOUSE_CENTER: [number, number] = [1.4437, 43.6047];
@@ -84,13 +85,6 @@ const TransitMap: Component = () => {
       map.addControl(new maplibregl.NavigationControl(), "bottom-right");
     }
 
-    map.addControl(
-      new maplibregl.GeolocateControl({
-        positionOptions: { enableHighAccuracy: true },
-        trackUserLocation: true,
-      }),
-      "bottom-right",
-    );
 
     map.on("load", () => {
       setMapReady(true);
@@ -134,6 +128,7 @@ const TransitMap: Component = () => {
           <LineLayer map={map} />
           <StopPopup map={map} />
           <VehiclePopup map={map} />
+          <LocateButton map={map} />
         </>
       )}
 
