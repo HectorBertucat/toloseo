@@ -35,6 +35,15 @@ export interface Vehicle {
   timestamp: number;
 }
 
+export interface NextStopInfo {
+  stopId: string;
+  stopName: string;
+  stopSequence: number;
+  scheduledArrival: number; // unix ms (0 if unknown)
+  estimatedArrival: number; // unix ms
+  delay: number; // seconds
+}
+
 export interface Alert {
   id: string;
   headerText: string;

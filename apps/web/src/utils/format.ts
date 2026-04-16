@@ -58,4 +58,45 @@ function delayColor(delaySeconds: number): string {
   return "#ef4444";
 }
 
-export { formatTime, formatDelay, formatDuration, delayColor };
+/**
+ * Countdown-style formatting for an upcoming arrival.
+ *   - <60s   -> "Now"
+ *   - <20min -> "5 min"
+ *   - >=20min -> "14:52"
+ */
+function formatCountdown(arrivalMs: number, nowMs: number = Date.now()): string {
+  const diffSec = Math.round((arrivalMs - nowMs) / 1000);
+  if (diffSec < 60) return "Now";
+
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 20) return `${diffMin} min`;
+
+  return new Date(arrivalMs).toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Signed delta in minutes for the "+3 min" style delay badge.
+ * Returns null for |delay| < 30s (treated as "on time").
+ */
+function formatDelayDelta(delaySeconds: number): string | null {
+  if (Math.abs(delaySeconds) < 30) return null;
+  const minutes = Math.round(delaySeconds / 60);
+  if (minutes === 0) {
+    const sign = delaySeconds > 0 ? "+" : "-";
+    return `${sign}${Math.abs(delaySeconds)}s`;
+  }
+  const sign = minutes > 0 ? "+" : "";
+  return `${sign}${minutes} min`;
+}
+
+export {
+  formatTime,
+  formatDelay,
+  formatDuration,
+  delayColor,
+  formatCountdown,
+  formatDelayDelta,
+};

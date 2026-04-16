@@ -9,7 +9,7 @@ import maplibregl from "maplibre-gl";
 import { selectedStop, setSelectedStop } from "../../stores/ui";
 import { transitState } from "../../stores/transit";
 import { getStopDepartures } from "../../services/api";
-import { formatTime, formatDelay } from "../../utils/format";
+import { formatTime, formatCountdown, formatDelayDelta } from "../../utils/format";
 import type { DepartureInfo } from "@shared/types";
 
 interface StopPopupProps {
@@ -38,30 +38,105 @@ const StopPopup: Component<StopPopupProps> = (props) => {
     loading: boolean,
   ): string {
     let html = `<div class="stop-popup">`;
-    html += `<h3 class="stop-popup__title">${escapeHtml(stopName)}</h3>`;
+    html += `<div class="stop-popup__header"><h3 class="stop-popup__title">${escapeHtml(stopName)}</h3></div>`;
 
     if (loading) {
-      html += `<p class="stop-popup__loading">Chargement des departs...</p>`;
+      html += `<p class="stop-popup__loading">Chargement des departs…</p>`;
     } else if (deps.length === 0) {
       html += `<p class="stop-popup__empty">Aucun depart prevu</p>`;
     } else {
-      html += `<ul class="stop-popup__list">`;
-      for (const dep of deps.slice(0, 6)) {
-        const delayText = formatDelay(dep.delay);
-        html += `<li class="stop-popup__departure">`;
-        html += `<span class="stop-popup__line" style="background:${escapeHtml(dep.routeColor)}">${escapeHtml(dep.routeShortName)}</span>`;
-        html += `<span class="stop-popup__headsign">${escapeHtml(dep.tripHeadsign)}</span>`;
-        html += `<span class="stop-popup__time">${formatTime(dep.estimatedTime)}</span>`;
-        if (dep.delay !== 0) {
-          html += `<span class="stop-popup__delay">${delayText}</span>`;
-        }
-        html += `</li>`;
-      }
-      html += `</ul>`;
+      html += renderGroupedDepartures(deps);
     }
 
     html += `</div>`;
     return html;
+  }
+
+  function renderGroupedDepartures(deps: DepartureInfo[]): string {
+    const groups = groupByLineDirection(deps);
+    let html = `<ul class="stop-popup__groups">`;
+    for (const group of groups.slice(0, 5)) {
+      const nextDeps = group.departures.slice(0, 3);
+      const first = nextDeps[0];
+      if (!first) continue;
+
+      const delta = formatDelayDelta(first.delay);
+      const dotClass = first.isRealtime
+        ? "stop-popup__dot stop-popup__dot--live"
+        : "stop-popup__dot stop-popup__dot--theoretical";
+
+      html += `<li class="stop-popup__group">`;
+      html += `<span class="stop-popup__badge" style="background:${escapeHtml(group.color)};color:${escapeHtml(group.textColor)}">${escapeHtml(group.shortName)}</span>`;
+      html += `<div class="stop-popup__group-body">`;
+      html += `<div class="stop-popup__group-top">`;
+      html += `<span class="stop-popup__direction">${escapeHtml(group.headsign)}</span>`;
+      html += `<span class="${dotClass}" title="${first.isRealtime ? "Temps reel" : "Horaire theorique"}"></span>`;
+      html += `</div>`;
+      html += `<div class="stop-popup__group-times">`;
+      html += nextDeps
+        .map((dep, i) => renderCountdown(dep, i === 0 ? delta : null))
+        .join(`<span class="stop-popup__sep" aria-hidden="true">·</span>`);
+      html += `</div>`;
+      html += `</div>`;
+      html += `</li>`;
+    }
+    html += `</ul>`;
+    return html;
+  }
+
+  function renderCountdown(dep: DepartureInfo, delta: string | null): string {
+    const countdown = formatCountdown(dep.estimatedTime, Date.now());
+    const scheduled = formatTime(dep.scheduledTime);
+    const showScheduled = delta !== null;
+    const deltaClass =
+      dep.delay > 0
+        ? "stop-popup__delta stop-popup__delta--late"
+        : "stop-popup__delta stop-popup__delta--early";
+
+    let html = `<span class="stop-popup__time-block">`;
+    html += `<span class="stop-popup__countdown">${escapeHtml(countdown)}</span>`;
+    if (delta) {
+      html += `<span class="${deltaClass}">${escapeHtml(delta)}</span>`;
+    }
+    if (showScheduled) {
+      html += `<span class="stop-popup__scheduled">${escapeHtml(scheduled)}</span>`;
+    }
+    html += `</span>`;
+    return html;
+  }
+
+  interface DepartureGroup {
+    shortName: string;
+    headsign: string;
+    color: string;
+    textColor: string;
+    departures: DepartureInfo[];
+  }
+
+  function groupByLineDirection(deps: DepartureInfo[]): DepartureGroup[] {
+    const map = new Map<string, DepartureGroup>();
+    for (const dep of deps) {
+      const key = `${dep.routeId}|${dep.tripHeadsign}`;
+      let group = map.get(key);
+      if (!group) {
+        const line = transitState.lines.find((l) => l.id === dep.routeId);
+        group = {
+          shortName: dep.routeShortName || line?.shortName || "?",
+          headsign: dep.tripHeadsign,
+          color: dep.routeColor || line?.color || "#6c63ff",
+          textColor: line?.textColor ?? "#ffffff",
+          departures: [],
+        };
+        map.set(key, group);
+      }
+      group.departures.push(dep);
+    }
+    // Sort groups by their earliest departure
+    return [...map.values()].sort(
+      (a, b) =>
+        (a.departures[0]?.estimatedTime ?? 0) -
+        (b.departures[0]?.estimatedTime ?? 0),
+    );
   }
 
   function closePopup(): void {

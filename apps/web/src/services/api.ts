@@ -9,6 +9,7 @@ import type {
   DelayByHour,
   ReliabilityScore,
   TrendData,
+  NextStopInfo,
 } from "@shared/types";
 
 class ApiError extends Error {
@@ -82,6 +83,12 @@ async function getAlerts(): Promise<Alert[]> {
   return fetchJson<Alert[]>("/api/alerts");
 }
 
+async function getVehicleNextStops(vehicleId: string): Promise<NextStopInfo[]> {
+  return fetchJson<NextStopInfo[]>(
+    `/api/vehicles/${encodeURIComponent(vehicleId)}/next-stops`,
+  );
+}
+
 // ── Analytics endpoints ─────────────────────────────────────
 
 async function getAnalyticsSummary(): Promise<AnalyticsSummary> {
@@ -120,6 +127,7 @@ export {
   getStops,
   getStopDepartures,
   getAlerts,
+  getVehicleNextStops,
   getAnalyticsSummary,
   getDelayByHour,
   getReliability,

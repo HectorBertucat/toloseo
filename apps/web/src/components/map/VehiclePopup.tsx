@@ -1,6 +1,7 @@
 import {
   type Component,
   createEffect,
+  createResource,
   onCleanup,
   untrack,
 } from "solid-js";
@@ -12,8 +13,13 @@ import {
   setFollowedVehicle,
 } from "../../stores/ui";
 import { transitState } from "../../stores/transit";
-import { formatDelay } from "../../utils/format";
-import type { Vehicle } from "@shared/types";
+import { getVehicleNextStops } from "../../services/api";
+import {
+  formatCountdown,
+  formatTime,
+  formatDelayDelta,
+} from "../../utils/format";
+import type { Vehicle, NextStopInfo } from "@shared/types";
 
 interface VehiclePopupProps {
   map: maplibregl.Map;
@@ -23,36 +29,83 @@ const VehiclePopup: Component<VehiclePopupProps> = (props) => {
   let activePopup: maplibregl.Popup | null = null;
   let currentVehicleId: string | null = null;
 
-  function buildHTML(v: Vehicle): string {
+  const [nextStops] = createResource(
+    selectedVehicle,
+    async (id): Promise<NextStopInfo[]> => {
+      if (!id) return [];
+      try {
+        return await getVehicleNextStops(id);
+      } catch {
+        return [];
+      }
+    },
+  );
+
+  function buildHTML(v: Vehicle, upcoming: NextStopInfo[]): string {
     const line = transitState.lines.find((l) => l.id === v.routeId);
     const lineLabel = line?.shortName ?? "?";
-    const lineName = line?.longName ?? "";
     const bg = line?.color ?? "#6c63ff";
     const fg = line?.textColor ?? "#ffffff";
-    const delayText = formatDelay(v.delay);
-    const delayClass = v.delay < 60 ? "on-time" : v.delay < 300 ? "minor" : "major";
+    const delta = formatDelayDelta(v.delay);
+    const deltaClass =
+      v.delay >= 0
+        ? "vehicle-popup__delta vehicle-popup__delta--late"
+        : "vehicle-popup__delta vehicle-popup__delta--early";
     const isFollowed = followedVehicle() === v.id;
     const followLabel = isFollowed ? "Arreter le suivi" : "Suivre ce vehicule";
+    const headsign = upcoming[upcoming.length - 1]?.stopName ?? line?.longName ?? "";
+
+    const nextStopsHtml = upcoming.length
+      ? renderNextStops(upcoming)
+      : `<p class="vehicle-popup__loading">Chargement des prochains arrets…</p>`;
 
     return `
       <div class="vehicle-popup">
         <div class="vehicle-popup__header">
-          <span class="vehicle-popup__badge" style="background:${escapeHtml(bg)};color:${escapeHtml(fg)}">${escapeHtml(lineLabel)}</span>
-          <span class="vehicle-popup__direction">${escapeHtml(lineName)}</span>
+          <span class="vehicle-popup__badge vehicle-popup__badge--xl" style="background:${escapeHtml(bg)};color:${escapeHtml(fg)}">${escapeHtml(lineLabel)}</span>
+          <div class="vehicle-popup__header-main">
+            <span class="vehicle-popup__direction">${escapeHtml(headsign)}</span>
+            ${delta ? `<span class="${deltaClass}">${escapeHtml(delta)}</span>` : `<span class="vehicle-popup__on-time">a l'heure</span>`}
+          </div>
         </div>
-        <div class="vehicle-popup__row">
-          <span class="vehicle-popup__label">Retard</span>
-          <span class="vehicle-popup__delay vehicle-popup__delay--${delayClass}">${escapeHtml(delayText)}</span>
-        </div>
-        <div class="vehicle-popup__row">
-          <span class="vehicle-popup__label">Identifiant</span>
-          <span class="vehicle-popup__val">${escapeHtml(v.label || v.id)}</span>
+        <div class="vehicle-popup__section">
+          <h4 class="vehicle-popup__section-title">Prochains arrets</h4>
+          ${nextStopsHtml}
         </div>
         <button class="vehicle-popup__follow" data-follow="${escapeHtml(v.id)}">
           ${escapeHtml(followLabel)}
         </button>
       </div>
     `;
+  }
+
+  function renderNextStops(stops: NextStopInfo[]): string {
+    const now = Date.now();
+    let html = `<ul class="vehicle-popup__stops">`;
+    for (const s of stops.slice(0, 5)) {
+      const arrival = s.estimatedArrival || s.scheduledArrival;
+      const countdown = arrival > 0 ? formatCountdown(arrival, now) : "—";
+      const scheduled = s.scheduledArrival ? formatTime(s.scheduledArrival) : "";
+      const delta = formatDelayDelta(s.delay);
+      const deltaClass =
+        s.delay >= 0
+          ? "vehicle-popup__delta vehicle-popup__delta--late"
+          : "vehicle-popup__delta vehicle-popup__delta--early";
+      html += `<li class="vehicle-popup__stop">`;
+      html += `<span class="vehicle-popup__stop-name">${escapeHtml(s.stopName)}</span>`;
+      html += `<span class="vehicle-popup__stop-times">`;
+      html += `<span class="vehicle-popup__stop-countdown">${escapeHtml(countdown)}</span>`;
+      if (delta) {
+        html += `<span class="${deltaClass}">${escapeHtml(delta)}</span>`;
+        if (scheduled) {
+          html += `<span class="vehicle-popup__stop-scheduled">${escapeHtml(scheduled)}</span>`;
+        }
+      }
+      html += `</span>`;
+      html += `</li>`;
+    }
+    html += `</ul>`;
+    return html;
   }
 
   function bindPopupActions(popup: maplibregl.Popup): void {
@@ -96,7 +149,7 @@ const VehiclePopup: Component<VehiclePopupProps> = (props) => {
     closePopup();
     currentVehicleId = vehicleId;
 
-    const html = untrack(() => buildHTML(vehicle));
+    const html = untrack(() => buildHTML(vehicle, nextStops() ?? []));
 
     const popup = new maplibregl.Popup({
       closeOnClick: false,
@@ -132,7 +185,7 @@ const VehiclePopup: Component<VehiclePopupProps> = (props) => {
 
     if (activePopup) {
       activePopup.setLngLat([v.lon, v.lat]);
-      activePopup.setHTML(buildHTML(v));
+      activePopup.setHTML(buildHTML(v, nextStops() ?? []));
       bindPopupActions(activePopup);
     }
 
