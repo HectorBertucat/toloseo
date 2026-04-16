@@ -55,6 +55,9 @@ export interface PredictedStop {
 const vehiclePredictions = new Map<string, PredictedStop[]>();
 const serviceCalendars = new Map<string, ServiceCalendar>();
 const calendarExceptions: CalendarException[] = [];
+// Cache of "YYYY-MM-DD" -> set of active serviceIds for that date.
+// Invalidated on every GTFS reload via setGtfsLoaded(true).
+const activeServicesCache = new Map<string, Set<string>>();
 
 let alerts: Alert[] = [];
 let gtfsLoaded = false;
@@ -119,6 +122,40 @@ export function getHasVehiclePositions(): boolean {
 
 export function setGtfsLoaded(loaded: boolean): void {
   gtfsLoaded = loaded;
+  // Calendar data may have changed, invalidate per-date cache
+  activeServicesCache.clear();
+}
+
+/**
+ * Return the set of service_ids active on the given date (YYYY-MM-DD),
+ * combining calendar.txt (weekly pattern + validity range) and
+ * calendar_dates.txt (per-date additions/removals).
+ *
+ * Cached per-date for the lifetime of the current GTFS dataset.
+ */
+export function getActiveServicesForDate(date: string): Set<string> {
+  const cached = activeServicesCache.get(date);
+  if (cached) return cached;
+
+  const active = new Set<string>();
+  const compact = date.replace(/-/g, ""); // YYYY-MM-DD -> YYYYMMDD
+  // Day-of-week index matching our calendar.days array (0=Monday..6=Sunday)
+  const jsDay = new Date(`${date}T00:00:00`).getDay(); // 0=Sunday..6=Saturday
+  const dowIndex = (jsDay + 6) % 7;
+
+  for (const cal of serviceCalendars.values()) {
+    if (compact < cal.startDate || compact > cal.endDate) continue;
+    if (cal.days[dowIndex]) active.add(cal.serviceId);
+  }
+
+  for (const ex of calendarExceptions) {
+    if (ex.date !== compact) continue;
+    if (ex.exceptionType === 1) active.add(ex.serviceId);
+    else if (ex.exceptionType === 2) active.delete(ex.serviceId);
+  }
+
+  activeServicesCache.set(date, active);
+  return active;
 }
 
 export function setLastPollTime(time: number): void {

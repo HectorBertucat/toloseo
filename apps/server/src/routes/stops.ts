@@ -6,6 +6,7 @@ import {
   getRoutes,
   getVehicles,
   getVehiclePredictions,
+  getActiveServicesForDate,
 } from "../gtfs/store.js";
 import { isInBbox, parseBbox } from "../utils/geo.js";
 import { parseGtfsTime, getCurrentServiceDate } from "../utils/time.js";
@@ -69,6 +70,7 @@ function computeDepartures(stopId: string): DepartureInfo[] {
   const vehicles = getVehicles();
   const predictionsMap = getVehiclePredictions();
   const serviceDate = getCurrentServiceDate();
+  const activeServices = getActiveServicesForDate(serviceDate);
   const now = Date.now();
   const results: DepartureInfo[] = [];
 
@@ -84,6 +86,7 @@ function computeDepartures(stopId: string): DepartureInfo[] {
 
     const trip = trips.get(tripId);
     if (!trip) continue;
+    if (!activeServices.has(trip.serviceId)) continue;
 
     const scheduledMs = parseGtfsTime(stopTime.departureTime, serviceDate);
     if (scheduledMs < now - 60_000) continue;
