@@ -36,3 +36,8 @@ bun.lockb
 
 # PWA generated
 dev-dist/
+
+# Local planning notes (not shared)
+notes/
+PLAN.md
+PLAN-*.md
