@@ -155,7 +155,7 @@ function getFilteredVehicles(bbox: BBox | null): Vehicle[] {
 }
 
 function vehicleHash(v: Vehicle): string {
-  return `${v.lat.toFixed(5)},${v.lon.toFixed(5)},${v.bearing},${v.delay},${v.stopSequence}`;
+  return `${v.lat.toFixed(6)},${v.lon.toFixed(6)},${v.bearing.toFixed(0)},${v.delay},${v.stopSequence}`;
 }
 
 function simpleHash(str: string): string {

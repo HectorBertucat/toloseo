@@ -6,10 +6,12 @@ import {
   getVehicles,
   getTrips,
   getRoutes,
+  getVehiclePredictions,
   setAlerts,
   setLastPollTime,
   setHasVehiclePositions,
   getHasVehiclePositions,
+  type PredictedStop,
 } from "./store.js";
 import { interpolateVehiclePosition } from "./interpolator.js";
 import type { Vehicle, Alert, ActivePeriod, InformedEntity } from "@shared/types.js";
@@ -17,20 +19,50 @@ import type { Vehicle, Alert, ActivePeriod, InformedEntity } from "@shared/types
 const { transit_realtime: rt } = GtfsRealtimeBindings;
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+let refineTimer: ReturnType<typeof setInterval> | null = null;
+
+const REFINE_INTERVAL_MS = 2_000;
 
 export function startRealtimePoller(): void {
   logger.info(
-    { intervalMs: config.pollingIntervalMs },
+    { intervalMs: config.pollingIntervalMs, refineMs: REFINE_INTERVAL_MS },
     "starting GTFS-RT poller",
   );
   pollOnce();
   pollTimer = setInterval(pollOnce, config.pollingIntervalMs);
+  refineTimer = setInterval(refineVehiclePositions, REFINE_INTERVAL_MS);
 }
 
 export function stopRealtimePoller(): void {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
+  }
+  if (refineTimer) {
+    clearInterval(refineTimer);
+    refineTimer = null;
+  }
+}
+
+/**
+ * Between pulls, periodically recompute each vehicle's position from the
+ * stored predictions + current wall time. This moves vehicles smoothly on
+ * the map without needing to re-fetch the feed.
+ */
+function refineVehiclePositions(): void {
+  const vehicles = getVehicles();
+  const predictionsMap = getVehiclePredictions();
+  if (vehicles.size === 0) return;
+
+  const nowMs = Date.now();
+  for (const [id, v] of vehicles) {
+    const predictions = predictionsMap.get(id) ?? null;
+    const pos = interpolateVehiclePosition(v.tripId, v.delay, nowMs, predictions);
+    if (!pos) continue;
+    v.lat = pos.lat;
+    v.lon = pos.lon;
+    v.bearing = pos.bearing;
+    v.timestamp = Math.floor(nowMs / 1000);
   }
 }
 
@@ -127,12 +159,28 @@ function processTripUpdate(
   if (!trip) return null;
 
   const delay = extractDelay(tu);
-  const position = interpolateVehiclePosition(tripId, delay, nowMs);
+
+  // Extract per-stop predictions from the RT update
+  const predictions: PredictedStop[] = [];
+  for (const stu of tu.stopTimeUpdate ?? []) {
+    predictions.push({
+      stopSequence: stu.stopSequence ?? 0,
+      stopId: stu.stopId ?? "",
+      arrival: toNumber(stu.arrival?.time) || 0,
+      departure: toNumber(stu.departure?.time) || 0,
+    });
+  }
+
+  const position = interpolateVehiclePosition(tripId, delay, nowMs, predictions);
   if (!position) return null;
 
   const vehicleId = tu.vehicle?.id ?? `tu-${tripId}`;
-
   const currentStopSequence = tu.stopTimeUpdate?.[0]?.stopSequence ?? 0;
+
+  // Save predictions for later use (analytics, next-stop, etc.)
+  if (predictions.length > 0) {
+    getVehiclePredictions().set(vehicleId, predictions);
+  }
 
   return {
     id: vehicleId,
@@ -191,9 +239,11 @@ function removeStaleVehicles(
 ): void {
   if (seenIds.size === 0) return;
   const cutoff = Date.now() / 1000 - 300;
+  const predictions = getVehiclePredictions();
   for (const [id, v] of vehicles) {
     if (!seenIds.has(id) && v.timestamp < cutoff) {
       vehicles.delete(id);
+      predictions.delete(id);
     }
   }
 }

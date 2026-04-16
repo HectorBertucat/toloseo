@@ -44,6 +44,15 @@ const trips = new Map<string, TripInfo>();
 const shapes = new Map<string, GeoJsonLineString>();
 const stopTimes = new Map<string, StopTimeEntry[]>();
 const vehicles = new Map<string, Vehicle>();
+// Per-vehicle predicted stop times from GTFS-RT tripUpdate.stopTimeUpdate
+// Only keeps future stops; updated on every poll.
+export interface PredictedStop {
+  stopSequence: number;
+  stopId: string;
+  arrival: number; // unix seconds, 0 if unknown
+  departure: number; // unix seconds, 0 if unknown
+}
+const vehiclePredictions = new Map<string, PredictedStop[]>();
 const serviceCalendars = new Map<string, ServiceCalendar>();
 const calendarExceptions: CalendarException[] = [];
 
@@ -76,6 +85,10 @@ export function getStopTimes(): Map<string, StopTimeEntry[]> {
 
 export function getVehicles(): Map<string, Vehicle> {
   return vehicles;
+}
+
+export function getVehiclePredictions(): Map<string, PredictedStop[]> {
+  return vehiclePredictions;
 }
 
 export function getAlerts(): Alert[] {
