@@ -11,6 +11,7 @@ import {
   setHasVehiclePositions,
   getHasVehiclePositions,
 } from "./store.js";
+import { interpolateVehiclePosition } from "./interpolator.js";
 import type { Vehicle, Alert, ActivePeriod, InformedEntity } from "@shared/types.js";
 
 const { transit_realtime: rt } = GtfsRealtimeBindings;
@@ -73,10 +74,17 @@ function processFeedEntities(
   const routes = getRoutes();
   const seenVehicleIds = new Set<string>();
   let vehiclePositionCount = 0;
+  let interpolatedCount = 0;
+  const now = Date.now();
 
   for (const entity of entities) {
     if (entity.tripUpdate) {
-      processTripUpdate(entity.tripUpdate, vehicles, trips);
+      const v = processTripUpdate(entity.tripUpdate, trips, now);
+      if (v) {
+        vehicles.set(v.id, v);
+        seenVehicleIds.add(v.id);
+        interpolatedCount++;
+      }
     }
     if (entity.vehicle) {
       const v = processVehiclePosition(entity.vehicle, trips, routes);
@@ -97,27 +105,47 @@ function processFeedEntities(
   updateRouteStats();
 
   logger.debug(
-    { entities: entities.length, vehicles: vehicles.size },
+    {
+      entities: entities.length,
+      vehicles: vehicles.size,
+      fromVehiclePosition: vehiclePositionCount,
+      fromTripUpdate: interpolatedCount,
+    },
     "GTFS-RT trip updates processed",
   );
 }
 
 function processTripUpdate(
   tu: GtfsRealtimeBindings.transit_realtime.ITripUpdate,
-  vehicles: Map<string, Vehicle>,
-  trips: Map<string, unknown>,
-): void {
+  trips: Map<string, { routeId: string }>,
+  nowMs: number,
+): Vehicle | null {
   const tripId = tu.trip?.tripId ?? "";
-  if (!tripId) return;
+  if (!tripId) return null;
+
+  const trip = trips.get(tripId);
+  if (!trip) return null;
 
   const delay = extractDelay(tu);
-  const vehicleId = tu.vehicle?.id ?? `tu-${tripId}`;
-  const existing = vehicles.get(vehicleId);
+  const position = interpolateVehiclePosition(tripId, delay, nowMs);
+  if (!position) return null;
 
-  if (existing) {
-    existing.delay = delay;
-    existing.timestamp = toNumber(tu.timestamp) || Date.now() / 1000;
-  }
+  const vehicleId = tu.vehicle?.id ?? `tu-${tripId}`;
+
+  const currentStopSequence = tu.stopTimeUpdate?.[0]?.stopSequence ?? 0;
+
+  return {
+    id: vehicleId,
+    tripId,
+    routeId: trip.routeId,
+    lat: position.lat,
+    lon: position.lon,
+    bearing: position.bearing,
+    delay,
+    stopSequence: currentStopSequence,
+    label: tu.vehicle?.label ?? vehicleId,
+    timestamp: toNumber(tu.timestamp) || Math.floor(nowMs / 1000),
+  };
 }
 
 function extractDelay(
