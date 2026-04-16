@@ -112,6 +112,38 @@
   line-height: 1.5;
 }
 
+.data-reliability {
+  margin-top: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.data-reliability__title {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+}
+
+.data-reliability__list {
+  list-style: disc;
+  padding-left: 1.1rem;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--color-text-tertiary);
+}
+
+.data-reliability__list strong {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-semibold);
+}
+
 /* Vehicle popup styles (shared with stop popup container) */
 .vehicle-popup {
   font-size: var(--text-sm);

@@ -1,4 +1,5 @@
 import { type Component, createSignal, Show } from "solid-js";
+import DataReliabilityInfo from "./DataReliabilityInfo.jsx";
 import "../../styles/components/map-legend.css";
 
 const MapLegend: Component = () => {
@@ -42,9 +43,7 @@ const MapLegend: Component = () => {
           <p class="map-legend__hint">
             Cliquez sur un vehicule pour voir ses infos et le suivre.
           </p>
-          <p class="map-legend__hint">
-            <strong>Note :</strong> le feed Tisseo ne fournit pas le temps reel du metro, seulement bus et tram.
-          </p>
+          <DataReliabilityInfo />
         </div>
       </Show>
     </div>
