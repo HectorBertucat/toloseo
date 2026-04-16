@@ -21,6 +21,15 @@ import DelayChart from "./DelayChart";
 import Skeleton from "../ui/Skeleton";
 import "../../styles/components/analytics.css";
 
+function formatNetworkDelay(seconds: number): string {
+  if (seconds === 0) return "à l'heure";
+  const abs = Math.abs(seconds);
+  const sign = seconds > 0 ? "+" : "−";
+  if (abs < 60) return `${sign}${abs}s`;
+  const minutes = Math.round(abs / 60);
+  return `${sign}${minutes} min`;
+}
+
 const AnalyticsView: Component = () => {
   onMount(async () => {
     setLoading(true);
@@ -68,7 +77,7 @@ const AnalyticsView: Component = () => {
         <A href="/" class="analytics-view__back">&larr; Retour a la carte</A>
         <h1>Analytique du reseau</h1>
         <p class="analytics-view__subtitle">
-          Donnees agregees depuis la mise en service. Collecte toutes les 60 secondes. Rétention 90 jours.
+          Données temps-réel uniquement (bus + tram). Collecte chaque minute. Les véhicules sans signal live et les valeurs &gt; 30 min sont exclus. Rétention 1 an.
         </p>
       </header>
 
@@ -105,7 +114,7 @@ const AnalyticsView: Component = () => {
               </div>
               <div class="analytics-view__stat">
                 <span class="analytics-view__stat-value">
-                  {Math.round(analyticsState.summary!.avgNetworkDelay / 60)} min
+                  {formatNetworkDelay(analyticsState.summary!.avgNetworkDelay)}
                 </span>
                 <span class="analytics-view__stat-label">Retard moyen actuel</span>
               </div>
