@@ -9,8 +9,8 @@ import {
 } from "solid-js";
 import { transitState } from "../../stores/transit";
 import {
-  selectedLine,
-  setSelectedLine,
+  isLineSelected,
+  toggleLineSelection,
   sidebarOpen,
   toggleSidebar,
 } from "../../stores/ui";
@@ -45,6 +45,15 @@ const LineSelector: Component = () => {
     try {
       const lines = await getLines();
       setLines(lines);
+      // Default: preselect metro A and B on first visit
+      const hasVisited = localStorage.getItem("toloseo-visited");
+      if (!hasVisited) {
+        const metros = lines.filter((l) => l.mode === "metro");
+        for (const line of metros) {
+          toggleLineSelection(line.id);
+        }
+        localStorage.setItem("toloseo-visited", "1");
+      }
     } catch (err) {
       console.error("Failed to load lines:", err);
     }
@@ -75,7 +84,7 @@ const LineSelector: Component = () => {
   });
 
   function handleLineClick(lineId: string): void {
-    setSelectedLine(selectedLine() === lineId ? null : lineId);
+    toggleLineSelection(lineId);
   }
 
   function handleSheetToggle(): void {
@@ -145,8 +154,7 @@ const LineSelector: Component = () => {
                       <button
                         class="line-selector__item"
                         classList={{
-                          "line-selector__item--active":
-                            selectedLine() === line.id,
+                          "line-selector__item--active": isLineSelected(line.id),
                         }}
                         onClick={() => handleLineClick(line.id)}
                       >

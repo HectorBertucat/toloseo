@@ -3,6 +3,33 @@ import { transitState, setAlerts } from "../../stores/transit";
 import { getAlerts } from "../../services/api";
 import "../../styles/components/alert-banner.css";
 
+/** Strip HTML tags and decode entities from server-provided alert text. */
+function stripHtml(raw: string): string {
+  if (!raw) return "";
+  // Replace block-level HTML with spaces to keep word boundaries
+  const withSpaces = raw
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|li|div|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+
+  // Decode common entities
+  const decoded = withSpaces
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'");
+
+  // Collapse whitespace
+  return decoded.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Remove emoji prefixes and "🟠 " style header markers from alert titles. */
+function cleanHeader(raw: string): string {
+  return stripHtml(raw).replace(/^[\s\p{Emoji_Presentation}\p{Extended_Pictographic}]+/u, "").trim();
+}
+
 type Severity = "info" | "warning" | "error";
 
 function alertSeverity(effect: string): Severity {
@@ -74,9 +101,9 @@ const AlertBanner: Component = () => {
                   class="alert-banner__alert"
                   data-severity={alertSeverity(alert.effect)}
                 >
-                  <h4 class="alert-banner__header">{alert.headerText}</h4>
+                  <h4 class="alert-banner__header">{cleanHeader(alert.headerText)}</h4>
                   <p class="alert-banner__description">
-                    {alert.descriptionText}
+                    {stripHtml(alert.descriptionText)}
                   </p>
                 </div>
               )}

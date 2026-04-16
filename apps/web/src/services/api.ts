@@ -68,6 +68,10 @@ async function getStops(bbox?: BBox): Promise<Stop[]> {
   return fetchJson<Stop[]>(`/api/stops${query}`);
 }
 
+async function getLineStops(lineId: string): Promise<Stop[]> {
+  return fetchJson<Stop[]>(`/api/lines/${encodeURIComponent(lineId)}/stops`);
+}
+
 async function getStopDepartures(stopId: string): Promise<DepartureInfo[]> {
   return fetchJson<DepartureInfo[]>(
     `/api/stops/${encodeURIComponent(stopId)}/departures`,
@@ -112,6 +116,7 @@ export {
   ApiError,
   getLines,
   getLineShape,
+  getLineStops,
   getStops,
   getStopDepartures,
   getAlerts,

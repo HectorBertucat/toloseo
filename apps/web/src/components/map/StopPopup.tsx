@@ -3,7 +3,6 @@ import {
   createEffect,
   createResource,
   onCleanup,
-  Show,
 } from "solid-js";
 import maplibregl from "maplibre-gl";
 import { selectedStop, setSelectedStop } from "../../stores/ui";
@@ -16,14 +15,19 @@ interface StopPopupProps {
   map: maplibregl.Map;
 }
 
-let activePopup: maplibregl.Popup | null = null;
-
 const StopPopup: Component<StopPopupProps> = (props) => {
-  const [departures, { refetch }] = createResource(
+  let activePopup: maplibregl.Popup | null = null;
+  let currentStopId: string | null = null;
+
+  const [departures] = createResource(
     selectedStop,
-    async (stopId) => {
+    async (stopId): Promise<DepartureInfo[]> => {
       if (!stopId) return [];
-      return getStopDepartures(stopId);
+      try {
+        return await getStopDepartures(stopId);
+      } catch {
+        return [];
+      }
     },
   );
 
@@ -35,13 +39,13 @@ const StopPopup: Component<StopPopupProps> = (props) => {
     let html = `<div class="stop-popup">`;
     html += `<h3 class="stop-popup__title">${escapeHtml(stopName)}</h3>`;
 
-    if (loading) {
+    if (loading && (!deps || deps.length === 0)) {
       html += `<p class="stop-popup__loading">Chargement...</p>`;
     } else if (!deps || deps.length === 0) {
-      html += `<p class="stop-popup__empty">Aucun depart</p>`;
+      html += `<p class="stop-popup__empty">Aucun depart prevu</p>`;
     } else {
       html += `<ul class="stop-popup__list">`;
-      for (const dep of deps.slice(0, 5)) {
+      for (const dep of deps.slice(0, 6)) {
         const delayText = formatDelay(dep.delay);
         html += `<li class="stop-popup__departure">`;
         html += `<span class="stop-popup__line" style="background:${escapeHtml(dep.routeColor)}">${escapeHtml(dep.routeShortName)}</span>`;
@@ -59,52 +63,64 @@ const StopPopup: Component<StopPopupProps> = (props) => {
     return html;
   }
 
-  createEffect(() => {
-    const stopId = selectedStop();
-
+  function closePopup(): void {
     if (activePopup) {
       activePopup.remove();
       activePopup = null;
     }
+    currentStopId = null;
+  }
 
-    if (!stopId) return;
+  // Create/destroy popup only when the selected stop CHANGES
+  createEffect(() => {
+    const stopId = selectedStop();
+
+    if (stopId === currentStopId) return;
+
+    if (!stopId) {
+      closePopup();
+      return;
+    }
 
     const stop = transitState.stops[stopId];
     if (!stop) return;
 
+    // Tear down previous and create new popup for the new stop
+    closePopup();
+    currentStopId = stopId;
+
     const popup = new maplibregl.Popup({
-      closeOnClick: true,
-      maxWidth: "280px",
+      closeOnClick: false,
+      closeButton: true,
+      maxWidth: "300px",
       className: "toloseo-popup",
+      offset: 12,
     })
       .setLngLat([stop.lon, stop.lat])
-      .setHTML(
-        buildPopupHTML(stop.name, departures(), departures.loading),
-      )
+      .setHTML(buildPopupHTML(stop.name, departures(), departures.loading))
       .addTo(props.map);
 
     popup.on("close", () => {
-      setSelectedStop(null);
+      if (currentStopId === stopId) {
+        currentStopId = null;
+        setSelectedStop(null);
+      }
     });
 
     activePopup = popup;
   });
 
+  // Update popup HTML when departures load/change (without recreating)
   createEffect(() => {
-    if (!activePopup || !selectedStop()) return;
-    const stop = transitState.stops[selectedStop()!];
+    const deps = departures();
+    const loading = departures.loading;
+    if (!activePopup || !currentStopId) return;
+    const stop = transitState.stops[currentStopId];
     if (!stop) return;
-    activePopup.setHTML(
-      buildPopupHTML(stop.name, departures(), departures.loading),
-    );
+    activePopup.setHTML(buildPopupHTML(stop.name, deps, loading));
   });
 
-  onCleanup(() => {
-    if (activePopup) {
-      activePopup.remove();
-      activePopup = null;
-    }
-  });
+  onCleanup(() => closePopup());
 
   return null;
 };

@@ -1,7 +1,8 @@
-import { type Component, createEffect, onCleanup } from "solid-js";
+import { type Component, createEffect, createResource, onCleanup } from "solid-js";
 import type maplibregl from "maplibre-gl";
 import { transitState } from "../../stores/transit";
-import { setSelectedStop } from "../../stores/ui";
+import { setSelectedStop, selectedLineIds } from "../../stores/ui";
+import { getLineStops } from "../../services/api";
 import type { Stop } from "@shared/types";
 
 interface StopMarkersProps {
@@ -13,10 +14,20 @@ const SOURCE_ID = "stops-source";
 const CLUSTER_LAYER_ID = "stops-clusters";
 const CLUSTER_COUNT_LAYER_ID = "stops-cluster-count";
 const UNCLUSTERED_LAYER_ID = "stops-unclustered";
+const HIGHLIGHT_SOURCE_ID = "stops-highlight-source";
+const HIGHLIGHT_LAYER_ID = "stops-highlight-layer";
+const HIGHLIGHT_LABEL_LAYER_ID = "stops-highlight-labels";
+
+interface StopFeatureProperties {
+  id: string;
+  name: string;
+  mode: string;
+  color: string;
+}
 
 function stopsToGeoJSON(
   stops: Stop[],
-): GeoJSON.FeatureCollection<GeoJSON.Point> {
+): GeoJSON.FeatureCollection<GeoJSON.Point, StopFeatureProperties> {
   return {
     type: "FeatureCollection",
     features: stops.map((s) => ({
@@ -26,19 +37,47 @@ function stopsToGeoJSON(
         id: s.id,
         name: s.name,
         mode: s.modes[0] ?? "bus",
+        color: "#6c63ff",
       },
     })),
   };
 }
 
-function removeAll(map: maplibregl.Map): void {
-  for (const id of [CLUSTER_COUNT_LAYER_ID, UNCLUSTERED_LAYER_ID, CLUSTER_LAYER_ID]) {
-    if (map.getLayer(id)) map.removeLayer(id);
-  }
-  if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
+function highlightedToGeoJSON(
+  stops: Stop[],
+  color: string,
+): GeoJSON.FeatureCollection<GeoJSON.Point, StopFeatureProperties> {
+  return {
+    type: "FeatureCollection",
+    features: stops.map((s) => ({
+      type: "Feature" as const,
+      geometry: { type: "Point" as const, coordinates: [s.lon, s.lat] },
+      properties: {
+        id: s.id,
+        name: s.name,
+        mode: s.modes[0] ?? "bus",
+        color,
+      },
+    })),
+  };
 }
 
-function addAll(map: maplibregl.Map, stops: Stop[]): void {
+function removeAllLayers(map: maplibregl.Map): void {
+  for (const id of [
+    HIGHLIGHT_LABEL_LAYER_ID,
+    HIGHLIGHT_LAYER_ID,
+    CLUSTER_COUNT_LAYER_ID,
+    UNCLUSTERED_LAYER_ID,
+    CLUSTER_LAYER_ID,
+  ]) {
+    if (map.getLayer(id)) map.removeLayer(id);
+  }
+  for (const id of [HIGHLIGHT_SOURCE_ID, SOURCE_ID]) {
+    if (map.getSource(id)) map.removeSource(id);
+  }
+}
+
+function addBaseLayers(map: maplibregl.Map, stops: Stop[]): void {
   map.addSource(SOURCE_ID, {
     type: "geojson",
     data: stopsToGeoJSON(stops),
@@ -55,7 +94,7 @@ function addAll(map: maplibregl.Map, stops: Stop[]): void {
     paint: {
       "circle-color": "#6c63ff",
       "circle-radius": ["step", ["get", "point_count"], 18, 50, 24, 200, 30],
-      "circle-opacity": 0.8,
+      "circle-opacity": 0.7,
     },
   });
 
@@ -77,26 +116,107 @@ function addAll(map: maplibregl.Map, stops: Stop[]): void {
     source: SOURCE_ID,
     filter: ["!", ["has", "point_count"]],
     paint: {
-      "circle-radius": ["match", ["get", "mode"], "metro", 7, "tram", 6, "cable", 6, 4],
+      "circle-radius": [
+        "match",
+        ["get", "mode"],
+        "metro", 6,
+        "tram", 5,
+        "cable", 5,
+        3,
+      ],
       "circle-color": "#6c63ff",
-      "circle-stroke-width": 1.5,
+      "circle-stroke-width": 1,
       "circle-stroke-color": "#ffffff",
+      "circle-opacity": 0.85,
+    },
+  });
+}
+
+function addHighlightLayer(map: maplibregl.Map, stops: Stop[]): void {
+  // Use the first stop's color as base, features carry per-feature color
+  map.addSource(HIGHLIGHT_SOURCE_ID, {
+    type: "geojson",
+    data: highlightedToGeoJSON(stops, "#6c63ff"),
+  });
+
+  map.addLayer({
+    id: HIGHLIGHT_LAYER_ID,
+    type: "circle",
+    source: HIGHLIGHT_SOURCE_ID,
+    paint: {
+      "circle-radius": [
+        "match",
+        ["get", "mode"],
+        "metro", 10,
+        "tram", 8,
+        "cable", 8,
+        7,
+      ],
+      "circle-color": ["get", "color"],
+      "circle-stroke-width": 2.5,
+      "circle-stroke-color": "#ffffff",
+    },
+  });
+
+  map.addLayer({
+    id: HIGHLIGHT_LABEL_LAYER_ID,
+    type: "symbol",
+    source: HIGHLIGHT_SOURCE_ID,
+    minzoom: 13,
+    layout: {
+      "text-field": ["get", "name"],
+      "text-size": 11,
+      "text-offset": [0, 1.4],
+      "text-anchor": "top",
+      "text-font": ["Noto Sans Regular"],
+      "text-optional": true,
+      "text-allow-overlap": false,
+    },
+    paint: {
+      "text-color": "#ffffff",
+      "text-halo-color": "#000000",
+      "text-halo-width": 1.5,
     },
   });
 }
 
 const StopMarkers: Component<StopMarkersProps> = (props) => {
+  let baseStops: Stop[] = [];
   let interactionsSetup = false;
+
+  // Fetch stops for currently selected lines
+  const [lineStops] = createResource(
+    selectedLineIds,
+    async (ids): Promise<{ stops: Stop[]; color: string } | null> => {
+      if (ids.length === 0) return null;
+      const allStops = new Map<string, Stop>();
+      let color = "#6c63ff";
+      for (const id of ids) {
+        try {
+          const stops = await getLineStops(id);
+          for (const s of stops) allStops.set(s.id, s);
+          const line = transitState.lines.find((l) => l.id === id);
+          if (line?.color) color = line.color;
+        } catch {
+          // skip failing line
+        }
+      }
+      return { stops: Array.from(allStops.values()), color };
+    },
+  );
 
   function setupInteractions(): void {
     if (interactionsSetup) return;
     interactionsSetup = true;
     const { map } = props;
 
-    map.on("click", UNCLUSTERED_LAYER_ID, (e) => {
+    const onStopClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       const id = e.features?.[0]?.properties?.["id"] as string | undefined;
       if (id) setSelectedStop(id);
-    });
+    };
+
+    map.on("click", UNCLUSTERED_LAYER_ID, onStopClick);
+    map.on("click", HIGHLIGHT_LAYER_ID, onStopClick);
 
     map.on("click", CLUSTER_LAYER_ID, (e) => {
       const feature = e.features?.[0];
@@ -108,35 +228,57 @@ const StopMarkers: Component<StopMarkersProps> = (props) => {
       });
     });
 
-    for (const layer of [UNCLUSTERED_LAYER_ID, CLUSTER_LAYER_ID]) {
+    for (const layer of [UNCLUSTERED_LAYER_ID, CLUSTER_LAYER_ID, HIGHLIGHT_LAYER_ID]) {
       map.on("mouseenter", layer, () => { map.getCanvas().style.cursor = "pointer"; });
       map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; });
     }
   }
 
-  function render(): void {
-    const stops = Object.values(transitState.stops) as Stop[];
+  function renderAll(): void {
+    const { map } = props;
+    const stops = baseStops;
     if (stops.length === 0) return;
 
-    removeAll(props.map);
-    addAll(props.map, stops);
+    removeAllLayers(map);
+    addBaseLayers(map, stops);
+
+    const selected = lineStops();
+    if (selected && selected.stops.length > 0) {
+      addHighlightLayer(map, selected.stops);
+    }
+
     setupInteractions();
   }
 
-  // Render when ready prop changes to true
+  // React to base stops loaded
   createEffect(() => {
     if (props.ready) {
-      render();
+      baseStops = Object.values(transitState.stops) as Stop[];
+      renderAll();
     }
   });
 
-  // Re-render after style change (theme toggle)
-  props.map.on("style.load", () => {
-    // Small delay to ensure style is fully loaded
-    setTimeout(render, 50);
+  // React to selected lines changing (refresh highlight)
+  createEffect(() => {
+    const selected = lineStops();
+    if (baseStops.length === 0) return;
+    // Remove just the highlight layers
+    const { map } = props;
+    if (map.getLayer(HIGHLIGHT_LABEL_LAYER_ID)) map.removeLayer(HIGHLIGHT_LABEL_LAYER_ID);
+    if (map.getLayer(HIGHLIGHT_LAYER_ID)) map.removeLayer(HIGHLIGHT_LAYER_ID);
+    if (map.getSource(HIGHLIGHT_SOURCE_ID)) map.removeSource(HIGHLIGHT_SOURCE_ID);
+
+    if (selected && selected.stops.length > 0) {
+      addHighlightLayer(map, selected.stops);
+    }
   });
 
-  onCleanup(() => removeAll(props.map));
+  // Re-render after style change
+  props.map.on("style.load", () => {
+    setTimeout(renderAll, 50);
+  });
+
+  onCleanup(() => removeAllLayers(props.map));
 
   return null;
 };

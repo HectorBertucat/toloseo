@@ -1,8 +1,8 @@
 import { type Component, createEffect, createResource, onCleanup } from "solid-js";
 import type maplibregl from "maplibre-gl";
-import { selectedLine } from "../../stores/ui";
+import { selectedLineIds } from "../../stores/ui";
 import { transitState } from "../../stores/transit";
-import { getLineShape, type LineShape } from "../../services/api";
+import { getLineShape } from "../../services/api";
 
 interface LineLayerProps {
   map: maplibregl.Map;
@@ -12,24 +12,30 @@ const SOURCE_ID = "line-shape-source";
 const LAYER_ID = "line-shape-layer";
 
 const LineLayer: Component<LineLayerProps> = (props) => {
-  let lastShapeData: GeoJSON.FeatureCollection | null = null;
-  let lastColor = "#6c63ff";
+  let lastData: GeoJSON.FeatureCollection | null = null;
 
-  const [shape] = createResource(selectedLine, async (lineId) => {
-    if (!lineId) return null;
-    try {
-      return await getLineShape(lineId);
-    } catch {
-      return null;
-    }
-  });
-
-  function getLineColor(): string {
-    const lineId = selectedLine();
-    if (!lineId) return "#6c63ff";
-    const line = transitState.lines.find((l) => l.id === lineId);
-    return line?.color ?? "#6c63ff";
-  }
+  const [shapes] = createResource(
+    selectedLineIds,
+    async (ids): Promise<GeoJSON.Feature[]> => {
+      if (ids.length === 0) return [];
+      const fetches = ids.map(async (id) => {
+        try {
+          const shape = await getLineShape(id);
+          const line = transitState.lines.find((l) => l.id === id);
+          const color = line?.color ?? "#6c63ff";
+          return {
+            type: "Feature" as const,
+            geometry: shape.geometry as GeoJSON.Geometry,
+            properties: { routeId: id, color },
+          } as GeoJSON.Feature;
+        } catch {
+          return null;
+        }
+      });
+      const results = await Promise.all(fetches);
+      return results.filter((r): r is GeoJSON.Feature => r !== null);
+    },
+  );
 
   function removeAll(): void {
     const { map } = props;
@@ -37,44 +43,42 @@ const LineLayer: Component<LineLayerProps> = (props) => {
     if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
   }
 
-  function render(shapeData: GeoJSON.FeatureCollection, color: string): void {
+  function render(data: GeoJSON.FeatureCollection): void {
     const { map } = props;
     removeAll();
 
-    map.addSource(SOURCE_ID, { type: "geojson", data: shapeData });
+    if (data.features.length === 0) return;
+
+    map.addSource(SOURCE_ID, { type: "geojson", data });
     const beforeLayer = map.getLayer("stops-clusters") ? "stops-clusters" : undefined;
-    map.addLayer({
-      id: LAYER_ID,
-      type: "line",
-      source: SOURCE_ID,
-      layout: { "line-join": "round", "line-cap": "round" },
-      paint: { "line-color": color, "line-width": 5, "line-opacity": 0.85 },
-    }, beforeLayer);
+    map.addLayer(
+      {
+        id: LAYER_ID,
+        type: "line",
+        source: SOURCE_ID,
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": 5,
+          "line-opacity": 0.9,
+        },
+      },
+      beforeLayer,
+    );
   }
 
   createEffect(() => {
-    const lineShape = shape();
-    const color = getLineColor();
-    lastColor = color;
-
-    if (!lineShape || !selectedLine()) {
-      lastShapeData = null;
-      removeAll();
-      return;
-    }
-
-    lastShapeData = {
+    const features = shapes() ?? [];
+    const data: GeoJSON.FeatureCollection = {
       type: "FeatureCollection",
-      features: [lineShape as GeoJSON.Feature],
+      features,
     };
-
-    render(lastShapeData, color);
+    lastData = data;
+    render(data);
   });
 
   props.map.on("style.load", () => {
-    if (lastShapeData) {
-      setTimeout(() => render(lastShapeData!, lastColor), 50);
-    }
+    if (lastData) setTimeout(() => render(lastData!), 50);
   });
 
   onCleanup(() => removeAll());
