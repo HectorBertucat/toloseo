@@ -65,6 +65,7 @@ export interface DepartureInfo {
   scheduledTime: number;
   delay: number;
   estimatedTime: number;
+  isRealtime: boolean;
 }
 
 // ── SSE event types ──────────────────────────────────────────────────

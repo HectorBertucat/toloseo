@@ -196,14 +196,62 @@ function processTripUpdate(
   };
 }
 
+/**
+ * Best-effort current delay for a trip.
+ *
+ * GTFS-RT spec: per-stop delays (stopTimeUpdate[].arrival.delay or
+ * departure.delay) are more specific than the top-level tripUpdate.delay.
+ * Toulouse's feed populates tripUpdate.delay with 0 but fills the real
+ * delays in stopTimeUpdate[], so we MUST check those first.
+ *
+ * Strategy:
+ *   1. Pick the first stopTimeUpdate that has a non-zero delay (the
+ *      earliest future stop where a delay is predicted).
+ *   2. Fall back to the last stop's reported delay.
+ *   3. Fall back to tripUpdate.delay.
+ */
 function extractDelay(
   tu: GtfsRealtimeBindings.transit_realtime.ITripUpdate,
 ): number {
-  if (tu.delay != null) return tu.delay;
   const updates = tu.stopTimeUpdate ?? [];
+
+  // Look for any stop with a non-zero delay (most informative)
+  for (const stu of updates) {
+    const a = stu.arrival?.delay;
+    if (a != null && a !== 0) return a;
+    const d = stu.departure?.delay;
+    if (d != null && d !== 0) return d;
+  }
+
+  // No non-zero delay found: take the last reported stu delay (even if 0)
   const last = updates[updates.length - 1];
   if (last?.arrival?.delay != null) return last.arrival.delay;
   if (last?.departure?.delay != null) return last.departure.delay;
+
+  // Fallback: top-level trip delay
+  if (tu.delay != null) return tu.delay;
+  return 0;
+}
+
+/**
+ * Returns the delay relevant to a specific future stop, preferring that
+ * stop's own stopTimeUpdate over the trip-wide delay.
+ */
+export function delayAtStop(
+  predictions: Array<{ stopSequence: number; arrival: number; departure: number }>,
+  scheduledArrival: number,
+  scheduledDeparture: number,
+  stopSequence: number,
+): number {
+  const p = predictions.find((x) => x.stopSequence === stopSequence);
+  if (!p) return 0;
+  // If we have predicted time and scheduled time, compute the delta
+  if (p.arrival > 0 && scheduledArrival > 0) {
+    return p.arrival - Math.floor(scheduledArrival / 1000);
+  }
+  if (p.departure > 0 && scheduledDeparture > 0) {
+    return p.departure - Math.floor(scheduledDeparture / 1000);
+  }
   return 0;
 }
 

@@ -1,5 +1,12 @@
 import type { Hono } from "hono";
-import { getStops, getStopTimes, getTrips, getRoutes, getVehicles } from "../gtfs/store.js";
+import {
+  getStops,
+  getStopTimes,
+  getTrips,
+  getRoutes,
+  getVehicles,
+  getVehiclePredictions,
+} from "../gtfs/store.js";
 import { isInBbox, parseBbox } from "../utils/geo.js";
 import { parseGtfsTime, getCurrentServiceDate } from "../utils/time.js";
 import type { ApiResponse, Stop, DepartureInfo } from "@shared/types.js";
@@ -60,9 +67,16 @@ function computeDepartures(stopId: string): DepartureInfo[] {
   const trips = getTrips();
   const routes = getRoutes();
   const vehicles = getVehicles();
+  const predictionsMap = getVehiclePredictions();
   const serviceDate = getCurrentServiceDate();
   const now = Date.now();
   const results: DepartureInfo[] = [];
+
+  // Index vehicles by tripId for quick lookup
+  const vehicleByTrip = new Map<string, typeof vehicles extends Map<string, infer V> ? V : never>();
+  for (const v of vehicles.values()) {
+    if (v.tripId) vehicleByTrip.set(v.tripId, v);
+  }
 
   for (const [tripId, times] of stopTimesMap) {
     const stopTime = times.find((st) => st.stopId === stopId);
@@ -71,34 +85,48 @@ function computeDepartures(stopId: string): DepartureInfo[] {
     const trip = trips.get(tripId);
     if (!trip) continue;
 
-    const scheduled = parseGtfsTime(stopTime.departureTime, serviceDate);
-    if (scheduled < now - 60_000) continue;
-    if (scheduled > now + 3600_000) continue;
+    const scheduledMs = parseGtfsTime(stopTime.departureTime, serviceDate);
+    if (scheduledMs < now - 60_000) continue;
+    if (scheduledMs > now + 2 * 3600_000) continue; // next 2 hours
 
     const route = routes.get(trip.routeId);
-    const delay = findVehicleDelay(tripId, vehicles);
+
+    // Look for a live RT prediction for THIS specific stop
+    const vehicle = vehicleByTrip.get(tripId);
+    const predictions = vehicle ? predictionsMap.get(vehicle.id) : null;
+    const predForStop = predictions?.find((p) => p.stopId === stopId);
+
+    let delay = 0;
+    let estimatedMs = scheduledMs;
+    let isRealtime = false;
+
+    if (predForStop) {
+      // Use the per-stop predicted arrival/departure if available
+      const predMs = (predForStop.departure || predForStop.arrival) * 1000;
+      if (predMs > 0) {
+        estimatedMs = predMs;
+        delay = Math.round((predMs - scheduledMs) / 1000);
+        isRealtime = true;
+      }
+    } else if (vehicle) {
+      // Fallback to the trip-wide delay from the vehicle
+      delay = vehicle.delay;
+      estimatedMs = scheduledMs + delay * 1000;
+      isRealtime = delay !== 0;
+    }
 
     results.push({
       routeId: trip.routeId,
       routeShortName: route?.shortName ?? "",
       routeColor: route?.color ?? "#888888",
       tripHeadsign: trip.headsign,
-      scheduledTime: scheduled,
+      scheduledTime: scheduledMs,
       delay,
-      estimatedTime: scheduled + delay * 1000,
+      estimatedTime: estimatedMs,
+      isRealtime,
     });
   }
 
   results.sort((a, b) => a.estimatedTime - b.estimatedTime);
-  return results.slice(0, 20);
-}
-
-function findVehicleDelay(
-  tripId: string,
-  vehicles: Map<string, { tripId: string; delay: number }>,
-): number {
-  for (const v of vehicles.values()) {
-    if (v.tripId === tripId) return v.delay;
-  }
-  return 0;
+  return results.slice(0, 12);
 }
