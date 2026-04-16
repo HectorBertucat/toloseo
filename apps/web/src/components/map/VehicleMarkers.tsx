@@ -12,6 +12,8 @@ interface VehicleMarkersProps {
 const SOURCE_ID = "vehicles-source";
 const CIRCLE_LAYER_ID = "vehicles-circle";
 const HALO_LAYER_ID = "vehicles-halo";
+const CHEVRON_LAYER_ID = "vehicles-chevron";
+const CHEVRON_IMAGE_ID = "toloseo-chevron";
 
 /** How long (ms) to smoothly animate from the previous position to the new one. */
 const ANIMATION_DURATION_MS = 2000;
@@ -49,6 +51,16 @@ function buildFeature(anim: AnimatedVehicle, nowMs: number): GeoJSON.Feature<Geo
   const lat = anim.prevLat + (anim.targetLat - anim.prevLat) * eased;
   const lon = anim.prevLon + (anim.targetLon - anim.prevLon) * eased;
 
+  // Fallback bearing from movement vector when the feed reports 0
+  let bearing = anim.bearing;
+  if (!bearing) {
+    const dLat = anim.targetLat - anim.prevLat;
+    const dLon = anim.targetLon - anim.prevLon;
+    if (Math.abs(dLat) + Math.abs(dLon) > 1e-6) {
+      bearing = (Math.atan2(dLon, dLat) * 180) / Math.PI;
+    }
+  }
+
   return {
     type: "Feature",
     id: anim.id,
@@ -56,7 +68,7 @@ function buildFeature(anim: AnimatedVehicle, nowMs: number): GeoJSON.Feature<Geo
     properties: {
       id: anim.id,
       routeId: anim.routeId,
-      bearing: anim.bearing,
+      bearing,
       delay: anim.delay,
       color: anim.color,
       haloColor: anim.haloColor,
@@ -65,12 +77,47 @@ function buildFeature(anim: AnimatedVehicle, nowMs: number): GeoJSON.Feature<Geo
   };
 }
 
+function ensureChevronImage(map: maplibregl.Map): void {
+  if (map.hasImage(CHEVRON_IMAGE_ID)) return;
+
+  const size = 32;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.lineWidth = 1.5;
+
+  const cx = size / 2;
+  const cy = size / 2;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 9);
+  ctx.lineTo(cx + 7, cy + 6);
+  ctx.lineTo(cx, cy + 2);
+  ctx.lineTo(cx - 7, cy + 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  const image = ctx.getImageData(0, 0, size, size);
+  map.addImage(
+    CHEVRON_IMAGE_ID,
+    { width: size, height: size, data: new Uint8Array(image.data.buffer) },
+    { pixelRatio: 2 },
+  );
+}
+
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
 
 function addSourceAndLayers(map: maplibregl.Map): void {
   if (map.getSource(SOURCE_ID)) return;
+
+  ensureChevronImage(map);
 
   map.addSource(SOURCE_ID, {
     type: "geojson",
@@ -125,6 +172,35 @@ function addSourceAndLayers(map: maplibregl.Map): void {
         "case",
         ["==", ["get", "selected"], 1], 1,
         0.3,
+      ],
+    },
+  });
+
+  map.addLayer({
+    id: CHEVRON_LAYER_ID,
+    type: "symbol",
+    source: SOURCE_ID,
+    filter: ["!=", ["get", "bearing"], 0],
+    layout: {
+      "icon-image": CHEVRON_IMAGE_ID,
+      "icon-rotate": ["get", "bearing"],
+      "icon-rotation-alignment": "map",
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+      "icon-size": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        11, ["case", ["==", ["get", "selected"], 1], 0.35, 0.22],
+        14, ["case", ["==", ["get", "selected"], 1], 0.45, 0.3],
+        17, ["case", ["==", ["get", "selected"], 1], 0.65, 0.5],
+      ],
+    },
+    paint: {
+      "icon-opacity": [
+        "case",
+        ["==", ["get", "selected"], 1], 1,
+        0.8,
       ],
     },
   });
@@ -277,9 +353,11 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
   onCleanup(() => {
     stopAnimationLoop();
     const { map } = props;
+    if (map.getLayer(CHEVRON_LAYER_ID)) map.removeLayer(CHEVRON_LAYER_ID);
     if (map.getLayer(HALO_LAYER_ID)) map.removeLayer(HALO_LAYER_ID);
     if (map.getLayer(CIRCLE_LAYER_ID)) map.removeLayer(CIRCLE_LAYER_ID);
     if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
+    if (map.hasImage(CHEVRON_IMAGE_ID)) map.removeImage(CHEVRON_IMAGE_ID);
   });
 
   return null;
