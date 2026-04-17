@@ -41,3 +41,6 @@ dev-dist/
 notes/
 PLAN.md
 PLAN-*.md
+
+# Claude Code workspace
+.claude/
