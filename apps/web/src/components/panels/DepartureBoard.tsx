@@ -9,7 +9,13 @@ import {
 import { useParams } from "@solidjs/router";
 import { getStopDepartures } from "../../services/api";
 import { formatTime, formatDelay } from "../../utils/format";
+import { pickReadableTextColor } from "../../utils/contrast";
 import Skeleton from "../ui/Skeleton";
+import StarButton from "../ui/StarButton";
+import {
+  isFavoriteStop,
+  toggleFavoriteStop,
+} from "../../stores/favorites";
 import "../../styles/components/departure-board.css";
 import type { DepartureInfo } from "@shared/types";
 
@@ -52,9 +58,22 @@ const DepartureBoard: Component = () => {
   return (
     <div class="departure-board">
       <div class="departure-board__header">
-        <h1 class="departure-board__title">Departs en temps reel</h1>
+        <div class="departure-board__header-main">
+          <h1 class="departure-board__title">Departs en temps reel</h1>
+          <Show when={params.stopId}>
+            <p class="departure-board__stop-id">Arret: {params.stopId}</p>
+          </Show>
+        </div>
         <Show when={params.stopId}>
-          <p class="departure-board__stop-id">Arret: {params.stopId}</p>
+          <StarButton
+            filled={isFavoriteStop(params.stopId!)}
+            label={
+              isFavoriteStop(params.stopId!)
+                ? "Retirer cet arret des favoris"
+                : "Ajouter cet arret aux favoris"
+            }
+            onToggle={() => toggleFavoriteStop(params.stopId!)}
+          />
         </Show>
       </div>
 
@@ -73,47 +92,58 @@ const DepartureBoard: Component = () => {
       </Show>
 
       <Show when={!departures.loading && params.stopId}>
-        <div class="departure-board__groups">
+        <div
+          class="departure-board__groups stagger"
+          role="timer"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           <For each={[...groupedDepartures().entries()]}>
-            {([groupKey, deps]) => (
-              <div class="departure-board__group">
-                <div class="departure-board__group-header">
-                  <span
-                    class="departure-board__line-badge"
-                    style={{
-                      "background-color": deps[0]?.routeColor ?? "#666",
-                    }}
-                  >
-                    {deps[0]?.routeShortName ?? "?"}
-                  </span>
-                  <span class="departure-board__direction">
-                    {deps[0]?.tripHeadsign ?? ""}
-                  </span>
-                </div>
-                <div class="departure-board__times">
-                  <For each={deps.slice(0, 4)}>
-                    {(dep) => (
-                      <div class="departure-board__time-row">
-                        <span class="departure-board__estimated">
-                          {formatTime(dep.estimatedTime)}
-                        </span>
-                        <Show when={dep.delay !== 0}>
-                          <span
-                            class="departure-board__delay"
-                            classList={{
-                              "departure-board__delay--late": dep.delay > 0,
-                              "departure-board__delay--early": dep.delay < 0,
-                            }}
-                          >
-                            {formatDelay(dep.delay)}
+            {([groupKey, deps]) => {
+              const bg = deps[0]?.routeColor ?? "#666666";
+              const fg = pickReadableTextColor(bg);
+              void groupKey;
+              return (
+                <div class="departure-board__group">
+                  <div class="departure-board__group-header">
+                    <span
+                      class="departure-board__line-badge"
+                      style={{
+                        "background-color": bg,
+                        color: fg,
+                      }}
+                    >
+                      {deps[0]?.routeShortName ?? "?"}
+                    </span>
+                    <span class="departure-board__direction">
+                      {deps[0]?.tripHeadsign ?? ""}
+                    </span>
+                  </div>
+                  <div class="departure-board__times">
+                    <For each={deps.slice(0, 4)}>
+                      {(dep) => (
+                        <div class="departure-board__time-row">
+                          <span class="departure-board__estimated">
+                            {formatTime(dep.estimatedTime)}
                           </span>
-                        </Show>
-                      </div>
-                    )}
-                  </For>
+                          <Show when={dep.delay !== 0}>
+                            <span
+                              class="departure-board__delay"
+                              classList={{
+                                "departure-board__delay--late": dep.delay > 0,
+                                "departure-board__delay--early": dep.delay < 0,
+                              }}
+                            >
+                              {formatDelay(dep.delay)}
+                            </span>
+                          </Show>
+                        </div>
+                      )}
+                    </For>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            }}
           </For>
         </div>
       </Show>

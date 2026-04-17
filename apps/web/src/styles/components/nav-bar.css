@@ -1,0 +1,129 @@
+/* ── Floating pill bottom nav ──────────────────────────────── */
+
+.nav-bar {
+  position: fixed;
+  z-index: var(--z-sidebar);
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--space-md) + var(--safe-bottom));
+  max-width: calc(100vw - var(--space-md) * 2);
+  padding: 6px;
+  border-radius: var(--radius-2xl);
+  background: var(--color-glass);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg);
+  transition:
+    transform var(--transition-base),
+    opacity var(--transition-base);
+}
+
+/* When the bottom sheet is full, slide the nav down out of the way. */
+.nav-bar[data-hidden="1"] {
+  transform: translate(-50%, calc(100% + var(--safe-bottom) + 16px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nav-bar__list {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-bar__item {
+  flex: 1;
+  min-width: 64px;
+}
+
+.nav-bar__link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 10px;
+  min-height: 52px;
+  border-radius: var(--radius-xl);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast),
+    transform var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nav-bar__link:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-tertiary);
+}
+
+.nav-bar__link:active {
+  transform: scale(0.94);
+}
+
+.nav-bar__link--active {
+  color: var(--color-accent-contrast);
+  background: var(--color-accent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
+.nav-bar__link--active:hover {
+  color: var(--color-accent-contrast);
+  background: var(--color-accent-hover);
+}
+
+.nav-bar__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-bar__label {
+  font-size: 10.5px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+/* Desktop: collapse to left rail. */
+@media (min-width: 769px) {
+  .nav-bar {
+    left: var(--space-md);
+    bottom: var(--space-md);
+    top: calc(var(--space-md) + var(--safe-top));
+    transform: none;
+    max-width: none;
+    width: 76px;
+    border-radius: var(--radius-xl);
+    flex-direction: column;
+    padding: var(--space-sm) 6px;
+  }
+  .nav-bar__list {
+    flex-direction: column;
+    gap: 4px;
+    height: 100%;
+  }
+  .nav-bar__item {
+    flex: 0;
+  }
+  .nav-bar__link {
+    min-height: 64px;
+  }
+  .nav-bar[data-hidden="1"] {
+    transform: translateX(calc(-100% - var(--space-md)));
+  }
+}
+
+/* Respect reduced motion: no slide-out. */
+@media (prefers-reduced-motion: reduce) {
+  .nav-bar,
+  .nav-bar[data-hidden="1"] {
+    transition: opacity var(--transition-fast);
+  }
+}

@@ -4,7 +4,6 @@ import {
   Show,
   createSignal,
   createMemo,
-  createEffect,
   onMount,
 } from "solid-js";
 import { transitState } from "../../stores/transit";
@@ -13,17 +12,26 @@ import {
   toggleLineSelection,
   sidebarOpen,
   toggleSidebar,
+  sheetState,
+  setSheetState,
+  type SheetState,
 } from "../../stores/ui";
-import { getLines } from "../../services/api";
+import { getLines, prefetchLineShape } from "../../services/api";
 import { setLines } from "../../stores/transit";
 import { formatDelay } from "../../utils/format";
 import ModeIcon from "../ui/ModeIcon";
+import StarButton from "../ui/StarButton";
 import TrendBadge from "../analytics/TrendBadge";
+import {
+  isFavoriteLine,
+  toggleFavoriteLine,
+  touchFavoriteLine,
+  favoriteLines,
+} from "../../stores/favorites";
 import "../../styles/components/line-selector.css";
 import type { TransitLine, TransitMode } from "@shared/types";
 
-type BottomSheetState = "peek" | "mid" | "full";
-const SHEET_CYCLE: BottomSheetState[] = ["peek", "mid", "full"];
+const SHEET_CYCLE: SheetState[] = ["peek", "mid", "full"];
 
 const MODE_ORDER: TransitMode[] = ["metro", "tram", "cable", "bus"];
 
@@ -36,7 +44,6 @@ const MODE_LABELS: Record<TransitMode, string> = {
 
 const LineSelector: Component = () => {
   const [search, setSearch] = createSignal("");
-  const [sheetState, setSheetState] = createSignal<BottomSheetState>("peek");
   const [isMobile, setIsMobile] = createSignal(false);
 
   onMount(async () => {
@@ -72,6 +79,62 @@ const LineSelector: Component = () => {
     );
   });
 
+  const favLines = createMemo(() =>
+    favoriteLines()
+      .map((id) => transitState.lines.find((l) => l.id === id))
+      .filter((l): l is TransitLine => !!l),
+  );
+
+  function LineRow(rowProps: { line: TransitLine }): ReturnType<Component> {
+    const line = rowProps.line;
+    return (
+      <div
+        class="line-selector__row"
+        classList={{
+          "line-selector__row--active": isLineSelected(line.id),
+        }}
+      >
+        <button
+          type="button"
+          class="line-selector__item"
+          classList={{
+            "line-selector__item--active": isLineSelected(line.id),
+          }}
+          onClick={() => handleLineClick(line.id)}
+          onPointerEnter={() => prefetchLineShape(line.id)}
+          onTouchStart={() => prefetchLineShape(line.id)}
+          aria-pressed={isLineSelected(line.id)}
+        >
+          <span
+            class="line-selector__badge"
+            style={{
+              "background-color": line.color,
+              color: line.textColor,
+            }}
+          >
+            {line.shortName}
+          </span>
+          <span class="line-selector__name truncate">{line.longName}</span>
+          <span class="line-selector__meta">
+            <span class="line-selector__count">{line.vehicleCount}</span>
+            <span class="line-selector__delay">
+              {formatDelay(line.avgDelay)}
+            </span>
+          </span>
+        </button>
+        <StarButton
+          filled={isFavoriteLine(line.id)}
+          label={
+            isFavoriteLine(line.id)
+              ? `Retirer ${line.shortName} des favoris`
+              : `Ajouter ${line.shortName} aux favoris`
+          }
+          onToggle={() => toggleFavoriteLine(line.id)}
+        />
+      </div>
+    );
+  }
+
   const groupedLines = createMemo(() => {
     const groups = new Map<TransitMode, TransitLine[]>();
     for (const mode of MODE_ORDER) {
@@ -85,13 +148,13 @@ const LineSelector: Component = () => {
 
   function handleLineClick(lineId: string): void {
     toggleLineSelection(lineId);
+    if (isFavoriteLine(lineId)) touchFavoriteLine(lineId);
   }
 
   function handleSheetToggle(): void {
-    setSheetState((prev) => {
-      const idx = SHEET_CYCLE.indexOf(prev);
-      return SHEET_CYCLE[(idx + 1) % SHEET_CYCLE.length] ?? "peek";
-    });
+    const idx = SHEET_CYCLE.indexOf(sheetState());
+    const nextState = SHEET_CYCLE[(idx + 1) % SHEET_CYCLE.length] ?? "peek";
+    setSheetState(nextState);
   }
 
   function handleHandleDragStart(ev: PointerEvent): void {
@@ -129,7 +192,12 @@ const LineSelector: Component = () => {
           class="line-selector__handle"
           onClick={handleSheetToggle}
           onPointerDown={handleHandleDragStart}
-          aria-label={`Panneau ${sheetState()}`}
+          aria-label="Deployer le panneau des lignes"
+          role="slider"
+          aria-valuemin="0"
+          aria-valuemax="2"
+          aria-valuenow={SHEET_CYCLE.indexOf(sheetState())}
+          aria-valuetext={sheetState()}
         >
           <span class="line-selector__handle-bar" />
         </button>
@@ -174,6 +242,19 @@ const LineSelector: Component = () => {
           />
         </div>
         <div class="line-selector__groups">
+          <Show when={favLines().length > 0 && search() === ""}>
+            <div class="line-selector__group">
+              <div class="line-selector__group-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 17.3 5.6 21l1.7-7.3L2 8.8l7.4-.6L12 1.5l2.6 6.7 7.4.6-5.3 4.9L18.4 21Z" /></svg>
+                <span>Favoris</span>
+              </div>
+              <div class="line-selector__list">
+                <For each={favLines()}>
+                  {(line) => <LineRow line={line} />}
+                </For>
+              </div>
+            </div>
+          </Show>
           <For each={[...groupedLines().entries()]}>
             {([mode, lines]) => (
               <div class="line-selector__group">
@@ -183,36 +264,7 @@ const LineSelector: Component = () => {
                 </div>
                 <div class="line-selector__list">
                   <For each={lines}>
-                    {(line) => (
-                      <button
-                        class="line-selector__item"
-                        classList={{
-                          "line-selector__item--active": isLineSelected(line.id),
-                        }}
-                        onClick={() => handleLineClick(line.id)}
-                      >
-                        <span
-                          class="line-selector__badge"
-                          style={{
-                            "background-color": line.color,
-                            color: line.textColor,
-                          }}
-                        >
-                          {line.shortName}
-                        </span>
-                        <span class="line-selector__name truncate">
-                          {line.longName}
-                        </span>
-                        <span class="line-selector__meta">
-                          <span class="line-selector__count">
-                            {line.vehicleCount}
-                          </span>
-                          <span class="line-selector__delay">
-                            {formatDelay(line.avgDelay)}
-                          </span>
-                        </span>
-                      </button>
-                    )}
+                    {(line) => <LineRow line={line} />}
                   </For>
                 </div>
               </div>
