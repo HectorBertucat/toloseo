@@ -90,8 +90,8 @@
   --sidebar-width: 320px;
   --header-height: 48px;
   --nav-height: 56px;
-  /* On mobile: nav (56) + gap (16) + sheet peek (88) + gap (16) = 176 */
-  --bottom-sheet-peek: 176px;
+  /* On mobile: nav (56) + gap (16) + sheet peek (104) + gap (16) = 192 */
+  --bottom-sheet-peek: 192px;
 
   /* Safe area helpers (fall back to 0 on non-notched) */
   --safe-top: env(safe-area-inset-top, 0px);

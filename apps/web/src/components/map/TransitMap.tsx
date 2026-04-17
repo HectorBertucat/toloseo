@@ -98,6 +98,26 @@ const TransitMap: Component = () => {
       }
     });
 
+    // Ensure the MapLibre canvas matches the viewport on mobile browser
+    // chrome / iOS PWA address bar changes. Throttled via rAF.
+    let resizeScheduled = false;
+    const scheduleResize = (): void => {
+      if (resizeScheduled) return;
+      resizeScheduled = true;
+      requestAnimationFrame(() => {
+        resizeScheduled = false;
+        map?.resize();
+      });
+    };
+    window.addEventListener("resize", scheduleResize);
+    window.addEventListener("orientationchange", scheduleResize);
+    window.visualViewport?.addEventListener("resize", scheduleResize);
+    onCleanup(() => {
+      window.removeEventListener("resize", scheduleResize);
+      window.removeEventListener("orientationchange", scheduleResize);
+      window.visualViewport?.removeEventListener("resize", scheduleResize);
+    });
+
     map.on("moveend", handleMoveEnd);
 
     const bounds = map.getBounds();

@@ -25,9 +25,8 @@ interface ShapeEntry {
 
 const LineLayer: Component<LineLayerProps> = (props) => {
   const [loadingFlag, setLoadingFlag] = createSignal(false);
+  let lastData: GeoJSON.FeatureCollection | null = null;
 
-  // Fetch ONLY shapes (stable data). Never reads transitState.lines so it
-  // does not re-fire on GTFS-RT ticks (vehicleCount / avgDelay mutations).
   const [entries] = createResource<ShapeEntry[], string[]>(
     () => selectedLineIds(),
     async (ids): Promise<ShapeEntry[]> => {
@@ -49,12 +48,8 @@ const LineLayer: Component<LineLayerProps> = (props) => {
         setLoadingFlag(false);
       }
     },
-    { initialValue: [] },
   );
 
-  // Derive features with colors in a memo — colors come from the transit
-  // store but this memo only re-runs when entries OR colors change; the
-  // source data update is decoupled.
   const features = createMemo<GeoJSON.Feature[]>(() => {
     const list = entries() ?? [];
     return list.map((e) => {
@@ -68,13 +63,33 @@ const LineLayer: Component<LineLayerProps> = (props) => {
     });
   });
 
-  function ensureSourceLayer(): void {
+  function removeAll(): void {
     const { map } = props;
-    if (map.getSource(SOURCE_ID)) return;
-    map.addSource(SOURCE_ID, {
-      type: "geojson",
-      data: { type: "FeatureCollection", features: [] },
-    });
+    if (map.getLayer(LAYER_ID)) map.removeLayer(LAYER_ID);
+    if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
+  }
+
+  function render(data: GeoJSON.FeatureCollection): void {
+    const { map } = props;
+    if (!map.isStyleLoaded()) {
+      map.once("styledata", () => render(data));
+      return;
+    }
+    // Fast path: source exists → just push new data, no teardown.
+    const existing = map.getSource(SOURCE_ID) as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (existing) {
+      if (data.features.length === 0) {
+        removeAll();
+        return;
+      }
+      existing.setData(data);
+      return;
+    }
+    // Slow path (initial render): create source + layer with data inline.
+    if (data.features.length === 0) return;
+    map.addSource(SOURCE_ID, { type: "geojson", data });
     const beforeLayer = map.getLayer("stops-clusters")
       ? "stops-clusters"
       : undefined;
@@ -94,55 +109,27 @@ const LineLayer: Component<LineLayerProps> = (props) => {
     );
   }
 
-  function removeSourceLayer(): void {
-    const { map } = props;
-    if (map.getLayer(LAYER_ID)) map.removeLayer(LAYER_ID);
-    if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
-  }
-
-  function pushData(fc: GeoJSON.FeatureCollection): void {
-    const { map } = props;
-    if (!map.isStyleLoaded()) {
-      map.once("styledata", () => pushData(fc));
-      return;
-    }
-    if (fc.features.length === 0) {
-      removeSourceLayer();
-      return;
-    }
-    ensureSourceLayer();
-    const src = map.getSource(SOURCE_ID) as
-      | maplibregl.GeoJSONSource
-      | undefined;
-    src?.setData(fc);
-  }
-
   createEffect(() => {
-    const fc: GeoJSON.FeatureCollection = {
+    const data: GeoJSON.FeatureCollection = {
       type: "FeatureCollection",
       features: features(),
     };
-    pushData(fc);
+    lastData = data;
+    render(data);
   });
 
-  // Restore after basemap style changes (light/dark, custom style swap).
   props.map.on("style.load", () => {
-    const fc: GeoJSON.FeatureCollection = {
-      type: "FeatureCollection",
-      features: features(),
-    };
-    setTimeout(() => pushData(fc), 50);
+    if (lastData) setTimeout(() => render(lastData!), 50);
   });
 
-  // Expose loading state on the map container via data attr so LineSelector
-  // can surface a spinner without a cross-component signal bus.
+  // Signal loading state via data attr on map container.
   createEffect(() => {
     const el = props.map.getContainer();
     if (loadingFlag()) el.dataset["lineLoading"] = "1";
     else delete el.dataset["lineLoading"];
   });
 
-  onCleanup(() => removeSourceLayer());
+  onCleanup(() => removeAll());
 
   return null;
 };

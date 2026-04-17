@@ -234,11 +234,16 @@ const LineSelector: Component = () => {
       <div class="line-selector__content">
         <div class="line-selector__search">
           <input
-            type="text"
+            type="search"
+            inputmode="search"
             placeholder="Rechercher une ligne..."
             value={search()}
+            onFocus={() => {
+              if (isMobile() && sheetState() === "peek") setSheetState("mid");
+            }}
             onInput={(e) => setSearch(e.currentTarget.value)}
             class="line-selector__input"
+            aria-label="Rechercher une ligne"
           />
         </div>
         <div class="line-selector__groups">

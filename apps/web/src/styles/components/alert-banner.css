@@ -3,8 +3,9 @@
 
 .alert-banner {
   position: absolute;
-  top: calc(var(--space-sm) + var(--safe-top));
-  right: calc(60px + var(--safe-right));
+  /* Under the theme-toggle (44px + space) so they don't overlap on mobile. */
+  top: calc(var(--space-sm) + var(--safe-top) + 52px);
+  right: calc(var(--space-sm) + var(--safe-right));
   z-index: var(--z-alert);
   max-width: min(420px, calc(100vw - 80px));
   border-radius: var(--radius-full);
@@ -19,10 +20,17 @@
 
 .alert-banner:has(.alert-banner__details) {
   border-radius: var(--radius-lg);
-  right: var(--space-md);
-  left: var(--space-md);
+  right: calc(var(--space-md) + var(--safe-right));
+  left: calc(var(--space-md) + var(--safe-left));
   max-width: 480px;
   margin-left: auto;
+}
+
+@media (min-width: 769px) {
+  .alert-banner {
+    top: calc(var(--space-sm) + var(--safe-top));
+    right: calc(60px + var(--safe-right));
+  }
 }
 
 .alert-banner[data-severity="error"] .alert-banner__icon {

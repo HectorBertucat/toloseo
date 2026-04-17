@@ -14,8 +14,8 @@
 
 .transit-map__theme-toggle {
   position: absolute;
-  top: var(--space-md);
-  right: var(--space-md);
+  top: calc(var(--space-md) + var(--safe-top));
+  right: calc(var(--space-md) + var(--safe-right));
   z-index: var(--z-overlay);
 }
 
@@ -299,9 +299,9 @@
   }
 
   .transit-map__theme-toggle {
-    top: var(--space-sm);
-    left: var(--space-sm);
-    right: auto;
+    top: calc(var(--space-sm) + var(--safe-top));
+    right: calc(var(--space-sm) + var(--safe-right));
+    left: auto;
   }
 
   /* Hide zoom and compass controls on mobile — pinch to zoom */
