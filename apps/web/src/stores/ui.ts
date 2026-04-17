@@ -2,6 +2,7 @@ import { createSignal, createEffect } from "solid-js";
 
 type Theme = "dark" | "light";
 type CurrentView = "map" | "board" | "analytics";
+type SheetState = "peek" | "mid" | "full";
 
 function loadTheme(): Theme {
   if (typeof window === "undefined") return "dark";
@@ -22,11 +23,31 @@ const [selectedVehicle, setSelectedVehicle] = createSignal<string | null>(null);
 const [followedVehicle, setFollowedVehicle] = createSignal<string | null>(null);
 const [sidebarOpen, setSidebarOpen] = createSignal(true);
 const [currentView, setCurrentView] = createSignal<CurrentView>("map");
+const [sheetState, setSheetState] = createSignal<SheetState>("peek");
+
+const THEME_COLORS: Record<Theme, string> = {
+  dark: "#1a1216",
+  light: "#f5ede2",
+};
+
+function syncThemeColorMeta(next: Theme): void {
+  if (typeof document === "undefined") return;
+  // Remove any media-scoped theme-color metas (from index.html) so the manual
+  // override takes precedence. They're recreated on first load only.
+  document
+    .querySelectorAll('meta[name="theme-color"]')
+    .forEach((m) => m.remove());
+  const meta = document.createElement("meta");
+  meta.name = "theme-color";
+  meta.content = THEME_COLORS[next];
+  document.head.appendChild(meta);
+}
 
 function setTheme(next: Theme): void {
   setThemeSignal(next);
   localStorage.setItem("toloseo-theme", next);
   document.documentElement.setAttribute("data-theme", next);
+  syncThemeColorMeta(next);
 }
 
 function toggleTheme(): void {
@@ -82,4 +103,7 @@ export {
   toggleSidebar,
   currentView,
   setCurrentView,
+  sheetState,
+  setSheetState,
 };
+export type { SheetState };

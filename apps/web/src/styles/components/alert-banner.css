@@ -3,8 +3,8 @@
 
 .alert-banner {
   position: absolute;
-  top: var(--space-sm);
-  right: 60px;
+  top: calc(var(--space-sm) + var(--safe-top));
+  right: calc(60px + var(--safe-right));
   z-index: var(--z-alert);
   max-width: min(420px, calc(100vw - 80px));
   border-radius: var(--radius-full);

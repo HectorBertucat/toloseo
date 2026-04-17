@@ -79,19 +79,20 @@
 /* ── Stop popup ───────────────────────────────────────────── */
 
 .toloseo-popup .maplibregl-popup-content {
-  background: rgba(18, 22, 34, 0.82);
+  background: var(--color-glass);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   color: var(--color-text-primary);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: var(--space-md);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-lg);
   min-width: 260px;
 }
 
 .toloseo-popup .maplibregl-popup-tip {
-  border-top-color: rgba(18, 22, 34, 0.82);
+  border-top-color: var(--color-glass);
+  border-bottom-color: var(--color-glass);
 }
 
 .toloseo-popup .maplibregl-popup-close-button {
@@ -112,8 +113,26 @@
 }
 
 .toloseo-popup .maplibregl-popup-close-button:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-border-hover);
   color: var(--color-text-primary);
+}
+
+/* ── MapLibre default controls, theme-aware ───────────────── */
+.maplibregl-ctrl-attrib {
+  background: var(--color-glass) !important;
+  color: var(--color-text-secondary);
+  backdrop-filter: blur(8px);
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--color-text-secondary);
+}
+.maplibregl-ctrl-group {
+  background: var(--color-glass) !important;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+.maplibregl-ctrl-group button {
+  color: var(--color-text-primary) !important;
 }
 
 .stop-popup__header {
@@ -194,13 +213,14 @@
 }
 
 .stop-popup__dot--live {
-  background: #22c55e;
-  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55);
+  background: var(--color-on-time);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-on-time) 55%, transparent);
   animation: stop-popup-pulse 1.8s ease-out infinite;
 }
 
 .stop-popup__dot--theoretical {
-  background: rgba(148, 163, 184, 0.7);
+  background: var(--color-text-tertiary);
+  opacity: 0.7;
 }
 
 @keyframes stop-popup-pulse {
@@ -243,13 +263,13 @@
 }
 
 .stop-popup__delta--late {
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.12);
+  color: var(--color-minor-delay);
+  background: color-mix(in srgb, var(--color-minor-delay) 14%, transparent);
 }
 
 .stop-popup__delta--early {
-  color: #60a5fa;
-  background: rgba(96, 165, 250, 0.12);
+  color: var(--color-info);
+  background: color-mix(in srgb, var(--color-info) 14%, transparent);
 }
 
 .stop-popup__scheduled {

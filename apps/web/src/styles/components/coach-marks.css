@@ -1,7 +1,7 @@
 .coach-mark {
   position: absolute;
   left: 50%;
-  bottom: calc(var(--bottom-sheet-peek, 0px) + 72px);
+  bottom: calc(var(--bottom-sheet-peek, 0px) + 72px + var(--safe-bottom));
   transform: translateX(-50%);
   z-index: var(--z-overlay);
 
@@ -11,15 +11,15 @@
   max-width: min(440px, calc(100vw - 32px));
   padding: 10px 12px 10px 14px;
 
-  background: rgba(18, 22, 34, 0.9);
+  background: var(--color-glass);
   backdrop-filter: blur(14px) saturate(180%);
   -webkit-backdrop-filter: blur(14px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lg);
   color: var(--color-text-primary);
 
-  animation: fade-in-up 200ms ease-out both;
+  animation: fade-in-up 200ms var(--ease-out-quart) both;
 }
 
 .coach-mark__body {
@@ -34,7 +34,7 @@
   font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--color-accent, #6c63ff);
+  color: var(--color-accent);
   font-weight: var(--font-semibold);
 }
 
@@ -46,9 +46,9 @@
 
 .coach-mark__dismiss {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  margin: -4px -4px -4px 0;
+  width: 44px;
+  height: 44px;
+  margin: -10px -10px -10px 0;
   border-radius: var(--radius-full);
   background: transparent;
   border: 0;
@@ -56,15 +56,19 @@
   font-size: 18px;
   cursor: pointer;
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .coach-mark__dismiss:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-border-hover);
   color: var(--color-text-primary);
 }
 
 @media (max-width: 768px) {
   .coach-mark {
-    bottom: calc(var(--bottom-sheet-peek, 0px) + 80px);
+    bottom: calc(var(--bottom-sheet-peek, 0px) + 80px + var(--safe-bottom));
   }
 }

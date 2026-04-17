@@ -1,11 +1,13 @@
 import {
   type Component,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
   Show,
 } from "solid-js";
 import type maplibregl from "maplibre-gl";
+import { theme } from "../../stores/ui";
 import "../../styles/components/locate-button.css";
 
 interface LocateButtonProps {
@@ -23,9 +25,32 @@ const LocateButton: Component<LocateButtonProps> = (props) => {
   let watchId: number | null = null;
   let firstFix = true;
 
+  function readThemeColors(): { dot: string; stroke: string } {
+    if (typeof window === "undefined") {
+      return { dot: "#3b82f6", stroke: "#ffffff" };
+    }
+    const styles = getComputedStyle(document.documentElement);
+    const dot = styles.getPropertyValue("--color-user-location").trim() ||
+      "#3b82f6";
+    const stroke =
+      styles.getPropertyValue("--color-user-location-stroke").trim() ||
+      "#ffffff";
+    return { dot, stroke };
+  }
+
+  function applyThemePaint(): void {
+    const { map } = props;
+    if (!map.getLayer(DOT_LAYER_ID)) return;
+    const { dot, stroke } = readThemeColors();
+    map.setPaintProperty(DOT_LAYER_ID, "circle-color", dot);
+    map.setPaintProperty(DOT_LAYER_ID, "circle-stroke-color", stroke);
+    map.setPaintProperty(HALO_LAYER_ID, "circle-color", dot);
+  }
+
   function ensureLayers(): void {
     const { map } = props;
     if (map.getSource(SOURCE_ID)) return;
+    const { dot, stroke } = readThemeColors();
     map.addSource(SOURCE_ID, {
       type: "geojson",
       data: { type: "FeatureCollection", features: [] },
@@ -36,7 +61,7 @@ const LocateButton: Component<LocateButtonProps> = (props) => {
       source: SOURCE_ID,
       paint: {
         "circle-radius": 18,
-        "circle-color": "#3b82f6",
+        "circle-color": dot,
         "circle-opacity": 0.2,
         "circle-blur": 0.5,
       },
@@ -47,9 +72,9 @@ const LocateButton: Component<LocateButtonProps> = (props) => {
       source: SOURCE_ID,
       paint: {
         "circle-radius": 7,
-        "circle-color": "#3b82f6",
+        "circle-color": dot,
         "circle-stroke-width": 3,
-        "circle-stroke-color": "#ffffff",
+        "circle-stroke-color": stroke,
       },
     });
   }
@@ -127,6 +152,11 @@ const LocateButton: Component<LocateButtonProps> = (props) => {
 
   onMount(() => {
     props.map.on("load", ensureLayers);
+  });
+
+  createEffect(() => {
+    theme();
+    applyThemePaint();
   });
 
   onCleanup(() => {

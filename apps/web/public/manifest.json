@@ -4,9 +4,11 @@
   "description": "Transit Toulouse en temps reel - Metro, Tram, Bus, Teleocab",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0d0f1a",
-  "theme_color": "#6c63ff",
+  "background_color": "#1a1216",
+  "theme_color": "#e86b5c",
   "lang": "fr",
+  "orientation": "portrait-primary",
+  "categories": ["travel", "navigation", "utilities"],
   "icons": [
     {
       "src": "/favicon.svg",
