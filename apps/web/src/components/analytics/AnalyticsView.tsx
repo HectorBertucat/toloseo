@@ -18,7 +18,9 @@ import {
 } from "../../services/api";
 import { transitState, setLines } from "../../stores/transit";
 import DelayChart from "./DelayChart";
+import Sparkline from "../ui/Sparkline";
 import Skeleton from "../ui/Skeleton";
+import { pickReadableTextColor } from "../../utils/contrast";
 import "../../styles/components/analytics.css";
 
 function formatNetworkDelay(seconds: number): string {
@@ -127,6 +129,25 @@ const AnalyticsView: Component = () => {
             </section>
           </Show>
 
+          <Show when={analyticsState.trends.length >= 2}>
+            <section class="analytics-view__section analytics-view__hero">
+              <div class="analytics-view__hero-head">
+                <h2>Tendance ponctualite (7 jours)</h2>
+                <span class="analytics-view__hero-stat">
+                  {analyticsState.trends[analyticsState.trends.length - 1]
+                    ?.onTimePercent.toFixed(0)}
+                  %
+                </span>
+              </div>
+              <Sparkline
+                values={analyticsState.trends.map((t) => t.onTimePercent)}
+                width={320}
+                height={48}
+                ariaLabel="Ponctualite des 7 derniers jours"
+              />
+            </section>
+          </Show>
+
           <Show when={analyticsState.delayByHour.length > 0}>
             <section class="analytics-view__section">
               <h2>Retard moyen par heure (7 derniers jours)</h2>
@@ -145,8 +166,11 @@ const AnalyticsView: Component = () => {
                         <span
                           class="analytics-view__line-badge"
                           style={{
-                            "background-color": item.line?.color ?? "#6c63ff",
-                            color: item.line?.textColor ?? "#fff",
+                            "background-color": item.line?.color ?? "#e86b5c",
+                            color: pickReadableTextColor(
+                              item.line?.color ?? "#e86b5c",
+                              item.line?.textColor ?? null,
+                            ),
                           }}
                         >
                           {item.line?.shortName ?? "?"}
@@ -172,8 +196,11 @@ const AnalyticsView: Component = () => {
                         <span
                           class="analytics-view__line-badge"
                           style={{
-                            "background-color": item.line?.color ?? "#6c63ff",
-                            color: item.line?.textColor ?? "#fff",
+                            "background-color": item.line?.color ?? "#e86b5c",
+                            color: pickReadableTextColor(
+                              item.line?.color ?? "#e86b5c",
+                              item.line?.textColor ?? null,
+                            ),
                           }}
                         >
                           {item.line?.shortName ?? "?"}

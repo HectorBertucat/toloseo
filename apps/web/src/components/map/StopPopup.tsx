@@ -10,6 +10,7 @@ import { selectedStop, setSelectedStop } from "../../stores/ui";
 import { transitState } from "../../stores/transit";
 import { getStopDepartures } from "../../services/api";
 import { formatTime, formatCountdown, formatDelayDelta } from "../../utils/format";
+import { pickReadableTextColor } from "../../utils/contrast";
 import type { DepartureInfo } from "@shared/types";
 
 interface StopPopupProps {
@@ -120,11 +121,12 @@ const StopPopup: Component<StopPopupProps> = (props) => {
       let group = map.get(key);
       if (!group) {
         const line = transitState.lines.find((l) => l.id === dep.routeId);
+        const bg = dep.routeColor || line?.color || "#e86b5c";
         group = {
           shortName: dep.routeShortName || line?.shortName || "?",
           headsign: dep.tripHeadsign,
-          color: dep.routeColor || line?.color || "#6c63ff",
-          textColor: line?.textColor ?? "#ffffff",
+          color: bg,
+          textColor: pickReadableTextColor(bg, line?.textColor ?? null),
           departures: [],
         };
         map.set(key, group);

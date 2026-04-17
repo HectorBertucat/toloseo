@@ -19,6 +19,7 @@ import {
   formatTime,
   formatDelayDelta,
 } from "../../utils/format";
+import { pickReadableTextColor } from "../../utils/contrast";
 import type { Vehicle, NextStopInfo } from "@shared/types";
 
 interface VehiclePopupProps {
@@ -44,8 +45,8 @@ const VehiclePopup: Component<VehiclePopupProps> = (props) => {
   function buildHTML(v: Vehicle, upcoming: NextStopInfo[]): string {
     const line = transitState.lines.find((l) => l.id === v.routeId);
     const lineLabel = line?.shortName ?? "?";
-    const bg = line?.color ?? "#6c63ff";
-    const fg = line?.textColor ?? "#ffffff";
+    const bg = line?.color ?? "#e86b5c";
+    const fg = pickReadableTextColor(bg, line?.textColor ?? null);
     const delta = formatDelayDelta(v.delay);
     const deltaClass =
       v.delay >= 0
