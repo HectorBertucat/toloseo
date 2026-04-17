@@ -10,6 +10,100 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg"],
       manifest: false,
+      workbox: {
+        navigateFallback: "/index.html",
+        navigateFallbackDenylist: [/^\/api\//, /^\/sw\.js$/],
+        // Cap precache to app shell only — tiles / GTFS go through runtime
+        // caching so we don't blow the iOS storage quota.
+        globPatterns: ["**/*.{js,css,html,svg,woff2}"],
+        cleanupOutdatedCaches: true,
+        skipWaiting: true,
+        clientsClaim: true,
+        runtimeCaching: [
+          // Google Fonts CSS: StaleWhileRevalidate.
+          {
+            urlPattern: ({ url }) => url.hostname === "fonts.googleapis.com",
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "gfonts-css-v1",
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 30 },
+            },
+          },
+          // Google Fonts woff2 files: CacheFirst (immutable).
+          {
+            urlPattern: ({ url }) => url.hostname === "fonts.gstatic.com",
+            handler: "CacheFirst",
+            options: {
+              cacheName: "gfonts-woff2-v1",
+              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          // OpenFreeMap tiles: immutable per style version → CacheFirst with
+          // expiration + quota guard.
+          {
+            urlPattern: ({ url }) =>
+              url.hostname === "tiles.openfreemap.org",
+            handler: "CacheFirst",
+            options: {
+              cacheName: "ofm-tiles-v1",
+              expiration: {
+                maxEntries: 2000,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+                purgeOnQuotaError: true,
+              },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          // Map style JSON / sprites / glyphs: rare, cache for a day.
+          {
+            urlPattern: ({ url }) =>
+              url.hostname === "tiles.openfreemap.org" &&
+              (url.pathname.endsWith(".json") ||
+                url.pathname.includes("/sprites/") ||
+                url.pathname.includes("/glyphs/")),
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "ofm-meta-v1",
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 60 * 60 * 24,
+              },
+            },
+          },
+          // GTFS static (lines, stops, shapes) — changes ~weekly.
+          {
+            urlPattern: ({ url }) =>
+              url.pathname.startsWith("/api/lines") ||
+              url.pathname.startsWith("/api/stops"),
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "gtfs-static-v1",
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 60 * 60 * 24,
+              },
+            },
+          },
+          // GTFS-RT: never serve stale as fresh. NetworkFirst with 3s fallback
+          // lets the UI degrade to cached state offline.
+          {
+            urlPattern: ({ url }) =>
+              url.pathname.startsWith("/api/vehicles") ||
+              url.pathname.startsWith("/api/alerts") ||
+              url.pathname.includes("/departures"),
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "gtfs-rt-v1",
+              networkTimeoutSeconds: 3,
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 60 * 5,
+              },
+            },
+          },
+        ],
+      },
     }),
   ],
   resolve: {
