@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { compress } from "hono/compress";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { corsMiddleware } from "./middleware/cors.js";
@@ -21,6 +22,8 @@ const app = new Hono();
 
 app.use("*", corsMiddleware());
 app.use("*", securityHeaders());
+// Compress JSON responses — shape payloads can reach 150 KB uncompressed.
+app.use("/api/*", compress());
 app.use("/api/*", rateLimit());
 
 registerHealthRoutes(app);

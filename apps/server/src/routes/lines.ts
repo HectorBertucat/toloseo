@@ -3,6 +3,26 @@ import { getRoutes, getTrips, getShapes, getStopTimes, getStops } from "../gtfs/
 import type { ApiResponse, TransitLine, Stop } from "@shared/types.js";
 import type { GeoJsonLineString } from "../gtfs/store.js";
 
+// Lazy-built index: routeId → shapeId. Invalidated by mutation count snapshot.
+let routeShapeIndex: Map<string, string> | null = null;
+let indexedTripsSize = -1;
+
+function getRouteShapeIndex(): Map<string, string> {
+  const trips = getTrips();
+  if (routeShapeIndex && trips.size === indexedTripsSize) {
+    return routeShapeIndex;
+  }
+  const index = new Map<string, string>();
+  for (const trip of trips.values()) {
+    if (trip.shapeId && !index.has(trip.routeId)) {
+      index.set(trip.routeId, trip.shapeId);
+    }
+  }
+  routeShapeIndex = index;
+  indexedTripsSize = trips.size;
+  return index;
+}
+
 export function registerLineRoutes(app: Hono): void {
   app.get("/api/lines", (c) => {
     const routes = getRoutes();
@@ -25,6 +45,9 @@ export function registerLineRoutes(app: Hono): void {
         404,
       );
     }
+
+    // Shapes are immutable per GTFS release. Encourage client + CDN cache.
+    c.header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
 
     return c.json({
       ok: true,
@@ -50,17 +73,9 @@ export function registerLineRoutes(app: Hono): void {
 }
 
 function findShapeForRoute(routeId: string): GeoJsonLineString | null {
-  const trips = getTrips();
-  const shapes = getShapes();
-
-  for (const trip of trips.values()) {
-    if (trip.routeId === routeId && trip.shapeId) {
-      const shape = shapes.get(trip.shapeId);
-      if (shape) return shape;
-    }
-  }
-
-  return null;
+  const shapeId = getRouteShapeIndex().get(routeId);
+  if (!shapeId) return null;
+  return getShapes().get(shapeId) ?? null;
 }
 
 function findStopsForRoute(routeId: string): Stop[] {

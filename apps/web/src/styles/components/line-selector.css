@@ -58,19 +58,19 @@
 
 .line-selector--mobile {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: calc(var(--nav-height) + var(--space-md) + var(--safe-bottom));
+  left: var(--space-sm);
+  right: var(--space-sm);
   background: var(--color-bg-secondary);
-  border-top: 1px solid var(--color-border);
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-  transition: height var(--transition-base);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  transition: height var(--transition-base), bottom var(--transition-base);
   overflow: hidden;
 }
 
 .line-selector--mobile[data-state="peek"] {
-  height: 15vh;
-  min-height: 96px;
+  height: 88px;
 }
 
 .line-selector--mobile[data-state="mid"] {
@@ -78,7 +78,12 @@
 }
 
 .line-selector--mobile[data-state="full"] {
-  height: 92vh;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  height: calc(100vh - var(--safe-top));
+  height: calc(100svh - var(--safe-top));
 }
 
 .line-selector--mobile {
@@ -167,26 +172,69 @@
 .line-selector__list {
   display: flex;
   flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.line-selector__row {
+  position: relative;
+  display: flex;
+  align-items: center;
   gap: 2px;
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast);
+}
+
+.line-selector__row--active {
+  background: var(--color-accent-muted);
+  box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
 .line-selector__item {
+  position: relative;
+  flex: 1;
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-sm);
+  min-height: 48px;
+  padding: var(--space-sm) var(--space-md) var(--space-sm) var(--space-sm);
   border-radius: var(--radius-md);
-  width: 100%;
   text-align: left;
-  transition: background var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .line-selector__item:hover {
   background: var(--color-bg-tertiary);
 }
 
+.line-selector__item:active {
+  transform: scale(0.985);
+}
+
 .line-selector__item--active {
-  background: var(--color-accent-muted);
+  background: transparent;
+}
+
+/* Loading indicator: pulse the left rail when the shape request is in flight.
+   Activated by [data-line-loading] on the map container + active item. */
+[data-line-loading] ~ * .line-selector__item--active::before,
+[data-line-loading] .line-selector__item--active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  background: var(--color-accent);
+  border-radius: var(--radius-full);
+  animation: line-loading-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes line-loading-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
 }
 
 .line-selector__badge {

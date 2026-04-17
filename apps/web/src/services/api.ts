@@ -60,8 +60,39 @@ interface LineShape {
   properties: Record<string, unknown>;
 }
 
+// Module-level cache: line shapes are immutable per GTFS release, safe to memoize.
+const shapeCache = new Map<string, LineShape>();
+const shapeInflight = new Map<string, Promise<LineShape>>();
+
 async function getLineShape(lineId: string): Promise<LineShape> {
-  return fetchJson<LineShape>(`/api/lines/${encodeURIComponent(lineId)}/shape`);
+  const cached = shapeCache.get(lineId);
+  if (cached) return cached;
+  const inflight = shapeInflight.get(lineId);
+  if (inflight) return inflight;
+  const p = fetchJson<LineShape>(
+    `/api/lines/${encodeURIComponent(lineId)}/shape`,
+  )
+    .then((shape) => {
+      shapeCache.set(lineId, shape);
+      shapeInflight.delete(lineId);
+      return shape;
+    })
+    .catch((err) => {
+      shapeInflight.delete(lineId);
+      throw err;
+    });
+  shapeInflight.set(lineId, p);
+  return p;
+}
+
+/**
+ * Fire-and-forget prefetch on hover/touchstart. Never throws.
+ */
+function prefetchLineShape(lineId: string): void {
+  if (shapeCache.has(lineId) || shapeInflight.has(lineId)) return;
+  getLineShape(lineId).catch(() => {
+    /* ignore */
+  });
 }
 
 async function getStops(bbox?: BBox): Promise<Stop[]> {
@@ -123,6 +154,7 @@ export {
   ApiError,
   getLines,
   getLineShape,
+  prefetchLineShape,
   getLineStops,
   getStops,
   getStopDepartures,
