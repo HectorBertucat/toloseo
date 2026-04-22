@@ -6,12 +6,12 @@
 
     handle /api/* {
         reverse_proxy localhost:3001 {
-            # Give Hono ~95s to respond so Caddy surfaces upstream timeouts
-            # before Cloudflare's fixed 100s cutoff triggers an opaque 524.
+            # Surface upstream slowness before Cloudflare's fixed 100s cutoff
+            # turns it into an opaque 524. Only directives accepted by Caddy's
+            # `transport http` — no read_timeout/write_timeout at this level.
             transport http {
                 dial_timeout 5s
                 response_header_timeout 95s
-                read_timeout 95s
             }
         }
     }

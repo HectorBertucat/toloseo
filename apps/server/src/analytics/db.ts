@@ -16,10 +16,10 @@ export async function initDatabase(): Promise<Database> {
   db = new Database(dbPath);
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA synchronous = NORMAL");
-  // 64 MB page cache (was 8 MB) — analytics aggregations scan millions of rows.
-  db.run("PRAGMA cache_size = -64000");
+  // 32 MB page cache (was 8 MB) — big enough to help analytics aggregations
+  // without competing with the GTFS in-memory store for RAM on a 2 GB VPS.
+  db.run("PRAGMA cache_size = -32000");
   db.run("PRAGMA temp_store = MEMORY");
-  db.run("PRAGMA mmap_size = 268435456");
 
   runMigrations(db);
   logger.info({ path: dbPath }, "analytics database initialized");
@@ -45,7 +45,31 @@ function runMigrations(database: Database): void {
   if (currentVersion < 2) applyMigration2(database);
   if (currentVersion < 3) applyMigration3(database);
   if (currentVersion < 4) applyMigration4(database);
-  if (currentVersion < 5) applyMigration5(database);
+  // Migration 5 (composite indexes) is opt-in via runDeferredMigrations()
+  // because bun:sqlite is synchronous and CREATE INDEX on a large
+  // delay_snapshots table blocks the event loop for minutes.
+}
+
+/**
+ * Opt-in, potentially long-running migration for the composite indexes on
+ * delay_snapshots. Must be gated by an explicit env var so it only runs
+ * during a maintenance window — bun:sqlite's synchronous CREATE INDEX would
+ * otherwise stall all HTTP handlers while the index is built.
+ */
+export async function runDeferredMigrations(): Promise<void> {
+  if (!db) return;
+  const database = db;
+  const currentVersion = getCurrentVersion(database);
+  if (currentVersion >= 5) return;
+
+  // Yield once so callers can finish logging / starting other tasks.
+  await new Promise((r) => setTimeout(r, 100));
+
+  try {
+    applyMigration5(database);
+  } catch (err) {
+    logger.error({ err }, "deferred migration 5 failed — analytics may be slow");
+  }
 }
 
 function getCurrentVersion(database: Database): number {
