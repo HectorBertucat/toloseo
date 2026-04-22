@@ -58,48 +58,45 @@ function queryDelayByHourImpl(routeId: string | null, days: number): DelayByHour
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
   const tzOffset = parisOffsetSeconds();
 
-  const baseWhere = `recorded_at >= ?
-    AND is_realtime = 1
-    AND ABS(delay_seconds) <= ?`;
-
+  // hour_bucket is stored in UTC; shift by tzOffset to render Paris-local hours.
   const rows = routeId
     ? (db
         .query(
           `SELECT
-            CAST(((recorded_at + ?) % 86400) / 3600 AS INTEGER) as hour,
-            AVG(delay_seconds) as avg_delay,
-            COUNT(*) as sample_count
-          FROM delay_snapshots
-          WHERE route_id = ? AND ${baseWhere}
+            CAST(((hour_bucket + ?) / 3600) % 24 AS INTEGER) as hour,
+            SUM(sum_delay) * 1.0 / NULLIF(SUM(sample_count), 0) as avg_delay,
+            SUM(sample_count) as sample_count
+          FROM hourly_stats
+          WHERE route_id = ? AND hour_bucket >= ?
           GROUP BY hour
           ORDER BY hour`,
         )
-        .all(tzOffset, routeId, cutoff, SANITY_BOUND_SECONDS) as {
+        .all(tzOffset, routeId, cutoff) as {
           hour: number;
-          avg_delay: number;
+          avg_delay: number | null;
           sample_count: number;
         }[])
     : (db
         .query(
           `SELECT
-            CAST(((recorded_at + ?) % 86400) / 3600 AS INTEGER) as hour,
-            AVG(delay_seconds) as avg_delay,
-            COUNT(*) as sample_count
-          FROM delay_snapshots
-          WHERE ${baseWhere}
+            CAST(((hour_bucket + ?) / 3600) % 24 AS INTEGER) as hour,
+            SUM(sum_delay) * 1.0 / NULLIF(SUM(sample_count), 0) as avg_delay,
+            SUM(sample_count) as sample_count
+          FROM hourly_stats
+          WHERE hour_bucket >= ?
           GROUP BY hour
           ORDER BY hour`,
         )
-        .all(tzOffset, cutoff, SANITY_BOUND_SECONDS) as {
+        .all(tzOffset, cutoff) as {
           hour: number;
-          avg_delay: number;
+          avg_delay: number | null;
           sample_count: number;
         }[]);
 
   return rows.map((row) => ({
     hour: row.hour,
-    avgDelay: Math.round(row.avg_delay),
-    p50Delay: Math.round(row.avg_delay),
+    avgDelay: Math.round(row.avg_delay ?? 0),
+    p50Delay: Math.round(row.avg_delay ?? 0),
     p90Delay: 0, // deprecated: the synthetic "* 1.8" was not statistically meaningful
     sampleCount: row.sample_count,
   }));
@@ -117,19 +114,17 @@ function queryAllReliabilityImpl(days: number): ReliabilityScore[] {
     .query(
       `SELECT
         route_id,
-        COUNT(*) as total_trips,
-        AVG(delay_seconds) as avg_delay,
-        MAX(delay_seconds) as max_delay,
-        SUM(CASE WHEN ABS(delay_seconds) <= ? THEN 1 ELSE 0 END) as on_time_count
-      FROM delay_snapshots
-      WHERE recorded_at >= ?
-        AND is_realtime = 1
-        AND ABS(delay_seconds) <= ?
+        SUM(sample_count) as total_trips,
+        SUM(sum_delay) * 1.0 / NULLIF(SUM(sample_count), 0) as avg_delay,
+        MAX(max_delay) as max_delay,
+        SUM(on_time_count) as on_time_count
+      FROM hourly_stats
+      WHERE hour_bucket >= ?
       GROUP BY route_id
-      HAVING COUNT(*) > 30
-      ORDER BY on_time_count * 1.0 / total_trips DESC`,
+      HAVING SUM(sample_count) > 30
+      ORDER BY SUM(on_time_count) * 1.0 / SUM(sample_count) DESC`,
     )
-    .all(ON_TIME_THRESHOLD_SECONDS, cutoff, SANITY_BOUND_SECONDS) as {
+    .all(cutoff) as {
     route_id: string;
     total_trips: number;
     avg_delay: number | null;
@@ -165,26 +160,24 @@ function queryReliabilityImpl(
 
   const row = db.query(`
     SELECT
-      COUNT(*) as total_trips,
-      AVG(delay_seconds) as avg_delay,
-      MAX(delay_seconds) as max_delay,
-      SUM(CASE WHEN ABS(delay_seconds) <= ? THEN 1 ELSE 0 END) as on_time_count
-    FROM delay_snapshots
-    WHERE route_id = ? AND recorded_at >= ?
-      AND is_realtime = 1
-      AND ABS(delay_seconds) <= ?
-  `).get(ON_TIME_THRESHOLD_SECONDS, routeId, cutoff, SANITY_BOUND_SECONDS) as {
-    total_trips: number;
+      SUM(sample_count) as total_trips,
+      SUM(sum_delay) * 1.0 / NULLIF(SUM(sample_count), 0) as avg_delay,
+      MAX(max_delay) as max_delay,
+      SUM(on_time_count) as on_time_count
+    FROM hourly_stats
+    WHERE route_id = ? AND hour_bucket >= ?
+  `).get(routeId, cutoff) as {
+    total_trips: number | null;
     avg_delay: number | null;
     max_delay: number | null;
-    on_time_count: number;
+    on_time_count: number | null;
   } | null;
 
-  if (!row || row.total_trips === 0) return null;
+  if (!row || !row.total_trips || row.total_trips === 0) return null;
 
   return {
     routeId,
-    onTimePercent: Math.round((row.on_time_count / row.total_trips) * 100),
+    onTimePercent: Math.round(((row.on_time_count ?? 0) / row.total_trips) * 100),
     avgDelay: Math.round(row.avg_delay ?? 0),
     maxDelay: row.max_delay ?? 0,
     totalTrips: row.total_trips,
@@ -231,29 +224,32 @@ function queryTrendImpl(days: number): TrendData[] {
   const db = getDatabase();
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
+  // vehicle_count is no longer exact (hourly_stats doesn't keep distinct
+  // vehicle IDs). Approximate by dividing total samples by a typical vehicle
+  // activity factor — good enough for a trend sparkline.
   const rows = db.query(`
     SELECT
       service_date as date,
-      AVG(delay_seconds) as avg_delay,
-      SUM(CASE WHEN ABS(delay_seconds) <= ? THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as on_time_pct,
-      COUNT(DISTINCT vehicle_id) as vehicle_count
-    FROM delay_snapshots
-    WHERE recorded_at >= ?
-      AND is_realtime = 1
-      AND ABS(delay_seconds) <= ?
+      SUM(sum_delay) * 1.0 / NULLIF(SUM(sample_count), 0) as avg_delay,
+      SUM(on_time_count) * 100.0 / NULLIF(SUM(sample_count), 0) as on_time_pct,
+      SUM(sample_count) as sample_count
+    FROM hourly_stats
+    WHERE hour_bucket >= ?
     GROUP BY service_date
     ORDER BY service_date
-  `).all(ON_TIME_THRESHOLD_SECONDS, cutoff, SANITY_BOUND_SECONDS) as {
+  `).all(cutoff) as {
     date: string;
-    avg_delay: number;
-    on_time_pct: number;
-    vehicle_count: number;
+    avg_delay: number | null;
+    on_time_pct: number | null;
+    sample_count: number;
   }[];
 
   return rows.map((row) => ({
     date: row.date,
-    avgDelay: Math.round(row.avg_delay),
-    onTimePercent: Math.round(row.on_time_pct),
-    vehicleCount: row.vehicle_count,
+    avgDelay: Math.round(row.avg_delay ?? 0),
+    onTimePercent: Math.round(row.on_time_pct ?? 0),
+    // Rough active-vehicle approximation: ~1 sample per minute per vehicle,
+    // ~16h of service per day → 960 samples/vehicle-day.
+    vehicleCount: Math.round(row.sample_count / 960),
   }));
 }

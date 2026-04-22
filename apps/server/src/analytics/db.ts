@@ -48,6 +48,7 @@ function runMigrations(database: Database): void {
   // Migration 5 (composite indexes) is opt-in via runDeferredMigrations()
   // because bun:sqlite is synchronous and CREATE INDEX on a large
   // delay_snapshots table blocks the event loop for minutes.
+  if (currentVersion < 6) applyMigration6(database);
 }
 
 /**
@@ -171,6 +172,86 @@ function applyMigration5(database: Database): void {
   );
   database.run("INSERT INTO schema_version (version) VALUES (5)");
   logger.info("applied migration 5: composite indexes on delay_snapshots");
+}
+
+function applyMigration6(database: Database): void {
+  // Pre-aggregated per-hour statistics. Millions of raw snapshots collapse
+  // into ~route_count * hours_retained rows — analytics queries touch a few
+  // thousand rows instead of tens of millions. Raw delay_snapshots stay
+  // around for short-term detail (30 days), hourly_stats is kept forever.
+  database.run(`
+    CREATE TABLE IF NOT EXISTS hourly_stats (
+      hour_bucket INTEGER NOT NULL,
+      route_id TEXT NOT NULL,
+      service_date TEXT NOT NULL,
+      sample_count INTEGER NOT NULL DEFAULT 0,
+      sum_delay INTEGER NOT NULL DEFAULT 0,
+      min_delay INTEGER,
+      max_delay INTEGER,
+      on_time_count INTEGER NOT NULL DEFAULT 0,
+      early_count INTEGER NOT NULL DEFAULT 0,
+      late_count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (hour_bucket, route_id)
+    )
+  `);
+  database.run(
+    "CREATE INDEX IF NOT EXISTS idx_hourly_route_bucket ON hourly_stats (route_id, hour_bucket)",
+  );
+  database.run("INSERT INTO schema_version (version) VALUES (6)");
+  logger.info("applied migration 6: hourly_stats table");
+}
+
+/**
+ * One-shot backfill from delay_snapshots into hourly_stats. Gated via
+ * RUN_BACKFILL=1 because on a multi-GB delay_snapshots table this can take
+ * several minutes (the aggregate walks every real-time row, grouped by
+ * hour and route_id). Writes with INSERT OR REPLACE — idempotent, safe to
+ * re-run.
+ */
+export async function runBackfillHourlyStats(): Promise<void> {
+  if (!db) return;
+  const database = db;
+
+  logger.info("backfill: starting hourly_stats population from delay_snapshots");
+  const started = Date.now();
+
+  // Yield so any startup logging flushes before we burn the main thread.
+  await new Promise((r) => setTimeout(r, 100));
+
+  try {
+    database.run("BEGIN");
+    database.run(`
+      INSERT OR REPLACE INTO hourly_stats
+        (hour_bucket, route_id, service_date, sample_count, sum_delay,
+         min_delay, max_delay, on_time_count, early_count, late_count)
+      SELECT
+        (recorded_at / 3600) * 3600 AS hour_bucket,
+        route_id,
+        MAX(service_date) AS service_date,
+        COUNT(*) AS sample_count,
+        SUM(delay_seconds) AS sum_delay,
+        MIN(delay_seconds) AS min_delay,
+        MAX(delay_seconds) AS max_delay,
+        SUM(CASE WHEN ABS(delay_seconds) <= 300 THEN 1 ELSE 0 END) AS on_time_count,
+        SUM(CASE WHEN delay_seconds < -300 THEN 1 ELSE 0 END) AS early_count,
+        SUM(CASE WHEN delay_seconds > 300 THEN 1 ELSE 0 END) AS late_count
+      FROM delay_snapshots
+      WHERE is_realtime = 1 AND ABS(delay_seconds) <= 1800
+      GROUP BY hour_bucket, route_id
+    `);
+    database.run("COMMIT");
+
+    const count = (database
+      .query("SELECT COUNT(*) as n FROM hourly_stats")
+      .get() as { n: number }).n;
+    logger.info(
+      { rows: count, elapsedMs: Date.now() - started },
+      "backfill: hourly_stats populated",
+    );
+  } catch (err) {
+    database.run("ROLLBACK");
+    logger.error({ err }, "backfill: failed");
+  }
 }
 
 export function closeDatabase(): void {

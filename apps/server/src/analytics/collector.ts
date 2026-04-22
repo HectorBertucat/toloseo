@@ -12,8 +12,12 @@ import { isHoliday, isSchoolVacation } from "./calendar.js";
 
 let collectorTimer: ReturnType<typeof setInterval> | null = null;
 
-const RETENTION_DAYS = 365;
+// Raw snapshot retention — short because hourly_stats keeps the summary
+// forever. 30 days is enough to troubleshoot a recent incident per-vehicle.
+const RETENTION_DAYS = 30;
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const ON_TIME_THRESHOLD_SECONDS = 300;
+const SANITY_BOUND_SECONDS = 1800;
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -72,6 +76,31 @@ function collectSnapshot(): void {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
+    // Incrementally fold this tick into hourly_stats. UPSERT adds the new
+    // observation to the running totals for (hour_bucket, route_id) so
+    // analytics queries can read aggregated data instead of millions of
+    // raw rows.
+    const hourlyStmt = db.prepare(`
+      INSERT INTO hourly_stats
+        (hour_bucket, route_id, service_date, sample_count, sum_delay,
+         min_delay, max_delay, on_time_count, early_count, late_count)
+      VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (hour_bucket, route_id) DO UPDATE SET
+        sample_count = sample_count + 1,
+        sum_delay = sum_delay + excluded.sum_delay,
+        min_delay = CASE
+          WHEN min_delay IS NULL OR excluded.min_delay < min_delay
+          THEN excluded.min_delay ELSE min_delay END,
+        max_delay = CASE
+          WHEN max_delay IS NULL OR excluded.max_delay > max_delay
+          THEN excluded.max_delay ELSE max_delay END,
+        on_time_count = on_time_count + excluded.on_time_count,
+        early_count = early_count + excluded.early_count,
+        late_count = late_count + excluded.late_count
+    `);
+
+    const hourBucket = Math.floor(now / 3600) * 3600;
+
     let observationsInserted = 0;
 
     const insertMany = db.transaction(() => {
@@ -90,6 +119,23 @@ function collectSnapshot(): void {
           serviceDate,
           isRealtime,
         );
+
+        if (isRealtime === 1 && Math.abs(v.delay) <= SANITY_BOUND_SECONDS) {
+          const onTime = Math.abs(v.delay) <= ON_TIME_THRESHOLD_SECONDS ? 1 : 0;
+          const early = v.delay < -ON_TIME_THRESHOLD_SECONDS ? 1 : 0;
+          const late = v.delay > ON_TIME_THRESHOLD_SECONDS ? 1 : 0;
+          hourlyStmt.run(
+            hourBucket,
+            v.routeId,
+            serviceDate,
+            v.delay,
+            v.delay,
+            v.delay,
+            onTime,
+            early,
+            late,
+          );
+        }
 
         const nextStop = predictions
           ? predictions.find((p) => (p.arrival || p.departure) >= now)
