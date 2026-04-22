@@ -16,7 +16,10 @@ export async function initDatabase(): Promise<Database> {
   db = new Database(dbPath);
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA synchronous = NORMAL");
-  db.run("PRAGMA cache_size = -8000");
+  // 64 MB page cache (was 8 MB) — analytics aggregations scan millions of rows.
+  db.run("PRAGMA cache_size = -64000");
+  db.run("PRAGMA temp_store = MEMORY");
+  db.run("PRAGMA mmap_size = 268435456");
 
   runMigrations(db);
   logger.info({ path: dbPath }, "analytics database initialized");
@@ -42,6 +45,7 @@ function runMigrations(database: Database): void {
   if (currentVersion < 2) applyMigration2(database);
   if (currentVersion < 3) applyMigration3(database);
   if (currentVersion < 4) applyMigration4(database);
+  if (currentVersion < 5) applyMigration5(database);
 }
 
 function getCurrentVersion(database: Database): number {
@@ -129,6 +133,20 @@ function applyMigration4(database: Database): void {
   );
   database.run("INSERT INTO schema_version (version) VALUES (4)");
   logger.info("applied migration 4: trip_observations table");
+}
+
+function applyMigration5(database: Database): void {
+  // Composite index for the aggregation queries: WHERE recorded_at >= ?
+  // combined with filter/group by route_id or is_realtime. Turns full scans
+  // into covering range scans on delay_snapshots (the biggest table).
+  database.run(
+    "CREATE INDEX IF NOT EXISTS idx_delay_recorded_route ON delay_snapshots (recorded_at, route_id)",
+  );
+  database.run(
+    "CREATE INDEX IF NOT EXISTS idx_delay_recorded_rt ON delay_snapshots (recorded_at, is_realtime)",
+  );
+  database.run("INSERT INTO schema_version (version) VALUES (5)");
+  logger.info("applied migration 5: composite indexes on delay_snapshots");
 }
 
 export function closeDatabase(): void {

@@ -80,27 +80,31 @@ function buildFeature(anim: AnimatedVehicle, nowMs: number): GeoJSON.Feature<Geo
 function ensureChevronImage(map: maplibregl.Map): void {
   if (map.hasImage(CHEVRON_IMAGE_ID)) return;
 
-  const size = 32;
+  // Dark ink chevron with crisp white outer ring. The two-tone stroke gives
+  // clear contrast against both light-terracotta and dark-night map styles,
+  // so the bus direction stays readable at every zoom level.
+  const size = 40;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  ctx.fillStyle = "#ffffff";
-  ctx.strokeStyle = "rgba(0,0,0,0.35)";
-  ctx.lineWidth = 1.5;
+  ctx.fillStyle = "#1a1216";
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 3;
+  ctx.lineJoin = "round";
 
   const cx = size / 2;
   const cy = size / 2;
   ctx.beginPath();
-  ctx.moveTo(cx, cy - 9);
-  ctx.lineTo(cx + 7, cy + 6);
-  ctx.lineTo(cx, cy + 2);
-  ctx.lineTo(cx - 7, cy + 6);
+  ctx.moveTo(cx, cy - 13);
+  ctx.lineTo(cx + 10, cy + 9);
+  ctx.lineTo(cx, cy + 4);
+  ctx.lineTo(cx - 10, cy + 9);
   ctx.closePath();
-  ctx.fill();
   ctx.stroke();
+  ctx.fill();
 
   const image = ctx.getImageData(0, 0, size, size);
   map.addImage(
@@ -187,20 +191,21 @@ function addSourceAndLayers(map: maplibregl.Map): void {
       "icon-rotation-alignment": "map",
       "icon-allow-overlap": true,
       "icon-ignore-placement": true,
+      // Bigger than before: chevrons were ~4-5px at city zoom and invisible.
       "icon-size": [
         "interpolate",
         ["linear"],
         ["zoom"],
-        11, ["case", ["==", ["get", "selected"], 1], 0.35, 0.22],
-        14, ["case", ["==", ["get", "selected"], 1], 0.45, 0.3],
-        17, ["case", ["==", ["get", "selected"], 1], 0.65, 0.5],
+        11, ["case", ["==", ["get", "selected"], 1], 0.6, 0.42],
+        14, ["case", ["==", ["get", "selected"], 1], 0.75, 0.55],
+        17, ["case", ["==", ["get", "selected"], 1], 1.0, 0.8],
       ],
     },
     paint: {
       "icon-opacity": [
         "case",
         ["==", ["get", "selected"], 1], 1,
-        0.8,
+        0.95,
       ],
     },
   });
@@ -210,6 +215,7 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
   let interactionsSetup = false;
   const animations = new Map<string, AnimatedVehicle>();
   let rafId: number | null = null;
+  let animationEndsAt = 0;
 
   function setupInteractions(): void {
     if (interactionsSetup) return;
@@ -263,6 +269,8 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
           targetLon: v.lon,
           updatedAt: nowMs,
         });
+        // New vehicle → schedule at least one render frame.
+        animationEndsAt = Math.max(animationEndsAt, nowMs + 16);
         continue;
       }
 
@@ -279,6 +287,7 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
         existing.targetLat = v.lat;
         existing.targetLon = v.lon;
         existing.updatedAt = nowMs;
+        animationEndsAt = Math.max(animationEndsAt, nowMs + ANIMATION_DURATION_MS);
       }
 
       // Always keep style properties current
@@ -317,9 +326,17 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
 
   function startAnimationLoop(): void {
     if (rafId !== null) return;
+    if (typeof document !== "undefined" && document.hidden) return;
     const loop = (): void => {
       renderFrame();
-      rafId = requestAnimationFrame(loop);
+      // Only keep RAF alive while an animation is still interpolating. Once
+      // everything has settled, stop the loop and resume on the next SSE
+      // update. Saves ~60 fps of setData work when the map is idle.
+      if (performance.now() < animationEndsAt) {
+        rafId = requestAnimationFrame(loop);
+      } else {
+        rafId = null;
+      }
     };
     rafId = requestAnimationFrame(loop);
   }
@@ -331,6 +348,24 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
     }
   }
 
+  function onVisibilityChange(): void {
+    if (document.hidden) {
+      stopAnimationLoop();
+    } else if (performance.now() < animationEndsAt) {
+      startAnimationLoop();
+    } else {
+      // Force one frame so stale positions snap to their targets.
+      renderFrame();
+    }
+  }
+
+  function onStyleLoad(): void {
+    addSourceAndLayers(props.map);
+    setupInteractions();
+    // Render once so existing vehicles reappear after the style swap.
+    renderFrame();
+  }
+
   // React to store updates
   createEffect(() => {
     // Track reactive deps
@@ -338,21 +373,23 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
     void transitState.lines;
     void selectedLineIds();
     syncAnimationsFromStore();
+    // Ensure at least one frame is drawn for non-positional changes (selection,
+    // delay recolor), and that the RAF loop resumes if we just added motion.
+    if (rafId === null) startAnimationLoop();
   });
 
-  props.map.on("style.load", () => {
-    setTimeout(() => {
-      addSourceAndLayers(props.map);
-      setupInteractions();
-    }, 50);
-  });
-
-  // Start render loop
-  startAnimationLoop();
+  props.map.on("style.load", onStyleLoad);
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", onVisibilityChange);
+  }
 
   onCleanup(() => {
     stopAnimationLoop();
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    }
     const { map } = props;
+    map.off("style.load", onStyleLoad);
     if (map.getLayer(CHEVRON_LAYER_ID)) map.removeLayer(CHEVRON_LAYER_ID);
     if (map.getLayer(HALO_LAYER_ID)) map.removeLayer(HALO_LAYER_ID);
     if (map.getLayer(CIRCLE_LAYER_ID)) map.removeLayer(CIRCLE_LAYER_ID);

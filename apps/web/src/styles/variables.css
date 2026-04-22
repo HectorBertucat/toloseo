@@ -90,6 +90,8 @@
   --sidebar-width: 320px;
   --header-height: 48px;
   --nav-height: 56px;
+  /* Desktop left rail width (bare — the nav-bar adds its own gap). */
+  --nav-rail-width: 76px;
   /* On mobile: nav (56) + gap (16) + sheet peek (104) + gap (16) = 192 */
   --bottom-sheet-peek: 192px;
 

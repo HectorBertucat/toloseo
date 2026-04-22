@@ -6,9 +6,14 @@ import {
   queryAnalyticsSummary,
   queryTrend,
 } from "../analytics/aggregator.js";
+import { cacheControl } from "../middleware/cache.js";
 import type { ApiResponse, DelayByHour, ReliabilityScore, AnalyticsSummary, TrendData } from "@shared/types.js";
 
 export function registerAnalyticsRoutes(app: Hono): void {
+  // Collector runs every 60s, so cache edge + browser for 60s. SWR lets
+  // Cloudflare keep serving the old copy up to 5 min while it revalidates.
+  app.use("/api/analytics/*", cacheControl(60, 300));
+
   app.get("/api/analytics/delay-by-hour", (c) => {
     const routeId = c.req.query("routeId") ?? null;
     const period = c.req.query("period") ?? "7d";

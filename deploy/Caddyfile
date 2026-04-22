@@ -5,7 +5,15 @@
     encode zstd gzip
 
     handle /api/* {
-        reverse_proxy localhost:3001
+        reverse_proxy localhost:3001 {
+            # Give Hono ~95s to respond so Caddy surfaces upstream timeouts
+            # before Cloudflare's fixed 100s cutoff triggers an opaque 524.
+            transport http {
+                dial_timeout 5s
+                response_header_timeout 95s
+                read_timeout 95s
+            }
+        }
     }
 
     handle {

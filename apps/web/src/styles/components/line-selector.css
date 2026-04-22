@@ -303,4 +303,10 @@
   .line-selector--mobile {
     display: none;
   }
+
+  /* The desktop nav-bar becomes a left rail at var(--space-md). Shift the
+     sidebar so it starts after the rail + a small gap, avoiding overlap. */
+  .line-selector--desktop {
+    left: calc(var(--nav-rail-width) + var(--space-md) * 2);
+  }
 }

@@ -109,12 +109,17 @@ const VehiclePopup: Component<VehiclePopupProps> = (props) => {
     return html;
   }
 
+  // Event-delegate the follow button click on the popup root. setHTML() wipes
+  // the inner DOM every SSE tick, so binding directly on the button stacked
+  // duplicate listeners — delegation survives the HTML swap with one listener.
   function bindPopupActions(popup: maplibregl.Popup): void {
     const el = popup.getElement();
-    if (!el) return;
-    const btn = el.querySelector<HTMLButtonElement>(".vehicle-popup__follow");
-    if (!btn) return;
-    btn.addEventListener("click", () => {
+    if (!el || el.dataset["popupBound"] === "1") return;
+    el.dataset["popupBound"] = "1";
+    el.addEventListener("click", (ev) => {
+      const target = ev.target as HTMLElement | null;
+      const btn = target?.closest<HTMLButtonElement>(".vehicle-popup__follow");
+      if (!btn) return;
       const id = btn.dataset["follow"];
       if (!id) return;
       if (followedVehicle() === id) {
@@ -203,10 +208,17 @@ const VehiclePopup: Component<VehiclePopupProps> = (props) => {
   return null;
 };
 
+const HTML_ESCAPE_RE = /[&<>"']/g;
+const HTML_ESCAPE_MAP: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
 function escapeHtml(text: string): string {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
+  return text.replace(HTML_ESCAPE_RE, (c) => HTML_ESCAPE_MAP[c] ?? c);
 }
 
 export default VehiclePopup;

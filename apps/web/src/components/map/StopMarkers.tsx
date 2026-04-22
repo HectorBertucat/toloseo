@@ -364,12 +364,17 @@ const StopMarkers: Component<StopMarkersProps> = (props) => {
     }
   });
 
-  // Re-render after style change
-  props.map.on("style.load", () => {
-    setTimeout(renderAll, 50);
-  });
+  // Re-render after style change. Tracked as a named handler so we can detach
+  // it on cleanup — MapLibre's on()/off() keep anonymous listeners forever.
+  const onStyleLoad = (): void => {
+    renderAll();
+  };
+  props.map.on("style.load", onStyleLoad);
 
-  onCleanup(() => removeAllLayers(props.map));
+  onCleanup(() => {
+    props.map.off("style.load", onStyleLoad);
+    removeAllLayers(props.map);
+  });
 
   return null;
 };
