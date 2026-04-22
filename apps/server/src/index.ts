@@ -14,7 +14,7 @@ import { registerSseRoutes } from "./routes/sse.js";
 import { registerAnalyticsRoutes } from "./routes/analytics.js";
 import { loadGtfsStatic } from "./gtfs/static-loader.js";
 import { startRealtimePoller } from "./gtfs/realtime-poller.js";
-import { initDatabase } from "./analytics/db.js";
+import { initDatabase, runDeferredMigrations } from "./analytics/db.js";
 import { startCollector } from "./analytics/collector.js";
 import { loadCalendarContext } from "./analytics/calendar.js";
 
@@ -61,6 +61,15 @@ async function bootstrap(): Promise<void> {
     { port: config.port, env: config.nodeEnv },
     "toloseo server started",
   );
+
+  // Heavy composite-index build on delay_snapshots can block the main thread
+  // for minutes (bun:sqlite is synchronous, DDL stalls all HTTP handlers).
+  // Opt-in via env var so it only runs during a deliberate maintenance window.
+  if (process.env["RUN_DEFERRED_MIGRATIONS"] === "1") {
+    runDeferredMigrations().catch((err) => {
+      logger.error({ err }, "deferred migration task failed");
+    });
+  }
 }
 
 bootstrap().catch((err) => {

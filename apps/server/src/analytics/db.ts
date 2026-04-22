@@ -16,10 +16,10 @@ export async function initDatabase(): Promise<Database> {
   db = new Database(dbPath);
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA synchronous = NORMAL");
-  // 64 MB page cache (was 8 MB) — analytics aggregations scan millions of rows.
-  db.run("PRAGMA cache_size = -64000");
+  // 32 MB page cache (was 8 MB) — big enough to help analytics aggregations
+  // without competing with the GTFS in-memory store for RAM on a 2 GB VPS.
+  db.run("PRAGMA cache_size = -32000");
   db.run("PRAGMA temp_store = MEMORY");
-  db.run("PRAGMA mmap_size = 268435456");
 
   runMigrations(db);
   logger.info({ path: dbPath }, "analytics database initialized");
@@ -45,7 +45,30 @@ function runMigrations(database: Database): void {
   if (currentVersion < 2) applyMigration2(database);
   if (currentVersion < 3) applyMigration3(database);
   if (currentVersion < 4) applyMigration4(database);
-  if (currentVersion < 5) applyMigration5(database);
+  // Migration 5 (composite indexes) is scheduled separately — it can take
+  // tens of seconds on a large delay_snapshots table and would block the
+  // main thread during bootstrap, making the server unreachable.
+}
+
+/**
+ * Deferred, non-blocking migration for the large composite indexes. Runs
+ * after the HTTP server is listening so index build time never prevents the
+ * service from serving traffic. Idempotent via IF NOT EXISTS.
+ */
+export async function runDeferredMigrations(): Promise<void> {
+  if (!db) return;
+  const database = db;
+  const currentVersion = getCurrentVersion(database);
+  if (currentVersion >= 5) return;
+
+  // Yield to the event loop before we start a potentially long DDL.
+  await new Promise((r) => setTimeout(r, 1000));
+
+  try {
+    applyMigration5(database);
+  } catch (err) {
+    logger.error({ err }, "deferred migration 5 failed — analytics may be slow");
+  }
 }
 
 function getCurrentVersion(database: Database): number {
