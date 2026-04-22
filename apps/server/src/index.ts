@@ -14,7 +14,7 @@ import { registerSseRoutes } from "./routes/sse.js";
 import { registerAnalyticsRoutes } from "./routes/analytics.js";
 import { loadGtfsStatic } from "./gtfs/static-loader.js";
 import { startRealtimePoller } from "./gtfs/realtime-poller.js";
-import { initDatabase } from "./analytics/db.js";
+import { initDatabase, runDeferredMigrations } from "./analytics/db.js";
 import { startCollector } from "./analytics/collector.js";
 import { loadCalendarContext } from "./analytics/calendar.js";
 
@@ -61,6 +61,16 @@ async function bootstrap(): Promise<void> {
     { port: config.port, env: config.nodeEnv },
     "toloseo server started",
   );
+
+  // Opt-in migration for the composite indexes on delay_snapshots. Disabled
+  // by default — bun:sqlite is synchronous and a CREATE INDEX on millions of
+  // rows blocks every HTTP handler for the duration. Only enable during a
+  // maintenance window: RUN_DEFERRED_MIGRATIONS=1.
+  if (process.env["RUN_DEFERRED_MIGRATIONS"] === "1") {
+    runDeferredMigrations().catch((err) => {
+      logger.error({ err }, "deferred migration task failed");
+    });
+  }
 }
 
 bootstrap().catch((err) => {
