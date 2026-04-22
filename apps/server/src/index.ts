@@ -14,7 +14,7 @@ import { registerSseRoutes } from "./routes/sse.js";
 import { registerAnalyticsRoutes } from "./routes/analytics.js";
 import { loadGtfsStatic } from "./gtfs/static-loader.js";
 import { startRealtimePoller } from "./gtfs/realtime-poller.js";
-import { initDatabase, runDeferredMigrations } from "./analytics/db.js";
+import { initDatabase, runDeferredMigrations, runBackfillHourlyStats } from "./analytics/db.js";
 import { startCollector } from "./analytics/collector.js";
 import { loadCalendarContext } from "./analytics/calendar.js";
 
@@ -69,6 +69,15 @@ async function bootstrap(): Promise<void> {
   if (process.env["RUN_DEFERRED_MIGRATIONS"] === "1") {
     runDeferredMigrations().catch((err) => {
       logger.error({ err }, "deferred migration task failed");
+    });
+  }
+
+  // One-shot backfill of hourly_stats from delay_snapshots. Same caveat:
+  // it's a huge aggregation query on millions of rows and will stall the
+  // main thread for its duration, so keep it behind an explicit flag.
+  if (process.env["RUN_BACKFILL"] === "1") {
+    runBackfillHourlyStats().catch((err) => {
+      logger.error({ err }, "hourly_stats backfill failed");
     });
   }
 }
