@@ -4,6 +4,7 @@ import {
   Show,
   createSignal,
   createMemo,
+  onCleanup,
   onMount,
 } from "solid-js";
 import { transitState } from "../../stores/transit";
@@ -49,6 +50,7 @@ const LineSelector: Component = () => {
   onMount(async () => {
     checkMobile();
     window.addEventListener("resize", checkMobile);
+    onCleanup(() => window.removeEventListener("resize", checkMobile));
 
     try {
       const lines = await getLines();

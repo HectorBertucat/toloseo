@@ -72,7 +72,10 @@ const LineLayer: Component<LineLayerProps> = (props) => {
   function render(data: GeoJSON.FeatureCollection): void {
     const { map } = props;
     if (!map.isStyleLoaded()) {
-      map.once("styledata", () => render(data));
+      // Wait for the map to stabilize after a style swap. "idle" fires once
+      // every source/sprite/glyph settled, whereas "styledata" can race with
+      // the addSource/addLayer below and leave the shape missing.
+      map.once("idle", () => render(data));
       return;
     }
     // Fast path: source exists → just push new data, no teardown.
@@ -118,9 +121,12 @@ const LineLayer: Component<LineLayerProps> = (props) => {
     render(data);
   });
 
-  props.map.on("style.load", () => {
-    if (lastData) setTimeout(() => render(lastData!), 50);
-  });
+  // Re-render after the map style reloads (theme toggle, etc). Must be
+  // cleaned up or MapLibre accumulates listeners across remounts.
+  const onStyleLoad = (): void => {
+    if (lastData) render(lastData);
+  };
+  props.map.on("style.load", onStyleLoad);
 
   // Signal loading state via data attr on map container.
   createEffect(() => {
@@ -129,7 +135,10 @@ const LineLayer: Component<LineLayerProps> = (props) => {
     else delete el.dataset["lineLoading"];
   });
 
-  onCleanup(() => removeAll());
+  onCleanup(() => {
+    props.map.off("style.load", onStyleLoad);
+    removeAll();
+  });
 
   return null;
 };

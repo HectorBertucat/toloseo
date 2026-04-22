@@ -5,6 +5,21 @@ import type { DelayByHour, ReliabilityScore, AnalyticsSummary, TrendData } from 
 const ON_TIME_THRESHOLD_SECONDS = 300;
 const SANITY_BOUND_SECONDS = 1800;
 
+// In-memory TTL cache for heavy aggregations. Data is only refreshed every
+// 60s anyway (collector interval), so hitting SQLite on every request is
+// wasteful. Aligned with the HTTP cache-control max-age=60s on the routes.
+const AGG_TTL_MS = 60_000;
+const aggCache = new Map<string, { expires: number; data: unknown }>();
+
+function cached<T>(key: string, fn: () => T): T {
+  const now = Date.now();
+  const hit = aggCache.get(key);
+  if (hit && hit.expires > now) return hit.data as T;
+  const data = fn();
+  aggCache.set(key, { expires: now + AGG_TTL_MS, data });
+  return data;
+}
+
 // Paris-local TZ offset (seconds) for a given moment, for shifting unix
 // timestamps into local-hour buckets inside SQL.
 function parisOffsetSeconds(at: number = Date.now()): number {
@@ -33,6 +48,12 @@ function parisOffsetSeconds(at: number = Date.now()): number {
 }
 
 export function queryDelayByHour(routeId: string | null, days: number): DelayByHour[] {
+  return cached(`delay-by-hour:${routeId ?? "all"}:${days}`, () =>
+    queryDelayByHourImpl(routeId, days),
+  );
+}
+
+function queryDelayByHourImpl(routeId: string | null, days: number): DelayByHour[] {
   const db = getDatabase();
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
   const tzOffset = parisOffsetSeconds();
@@ -85,6 +106,10 @@ export function queryDelayByHour(routeId: string | null, days: number): DelayByH
 }
 
 export function queryAllReliability(days: number): ReliabilityScore[] {
+  return cached(`all-reliability:${days}`, () => queryAllReliabilityImpl(days));
+}
+
+function queryAllReliabilityImpl(days: number): ReliabilityScore[] {
   const db = getDatabase();
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
@@ -123,6 +148,15 @@ export function queryAllReliability(days: number): ReliabilityScore[] {
 }
 
 export function queryReliability(
+  routeId: string,
+  days: number,
+): ReliabilityScore | null {
+  return cached(`reliability:${routeId}:${days}`, () =>
+    queryReliabilityImpl(routeId, days),
+  );
+}
+
+function queryReliabilityImpl(
   routeId: string,
   days: number,
 ): ReliabilityScore | null {
@@ -190,6 +224,10 @@ export function queryAnalyticsSummary(): AnalyticsSummary {
 }
 
 export function queryTrend(days: number): TrendData[] {
+  return cached(`trend:${days}`, () => queryTrendImpl(days));
+}
+
+function queryTrendImpl(days: number): TrendData[] {
   const db = getDatabase();
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 

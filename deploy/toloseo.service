@@ -6,9 +6,12 @@ After=network.target
 Type=simple
 User=deploy
 WorkingDirectory=/opt/toloseo/server
-ExecStart=/usr/local/bin/bun run src/index.ts
+# --smol halves Bun's heap baseline: safer on a 2G VPS next to GTFS in-memory store.
+ExecStart=/usr/local/bin/bun --smol run src/index.ts
 Restart=always
 RestartSec=5
+# GTFS static parse can take 60-90s on cold cache; give bootstrap headroom.
+TimeoutStartSec=120
 Environment=NODE_ENV=production
 Environment=PORT=3001
 StandardOutput=journal
