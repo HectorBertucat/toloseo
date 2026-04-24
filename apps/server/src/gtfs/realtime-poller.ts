@@ -11,6 +11,7 @@ import {
   setLastPollTime,
   setHasVehiclePositions,
   getHasVehiclePositions,
+  setFeedHeaderTimestamp,
   type PredictedStop,
 } from "./store.js";
 import { interpolateVehiclePosition } from "./interpolator.js";
@@ -21,7 +22,14 @@ const { transit_realtime: rt } = GtfsRealtimeBindings;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let refineTimer: ReturnType<typeof setInterval> | null = null;
 
-const REFINE_INTERVAL_MS = 2_000;
+export const REFINE_INTERVAL_MS = 2_000;
+
+// Schedule relationship values we ignore entirely: cancelled / skipped trips
+// should not show up on the map nor pollute analytics with a synthetic 0.
+const SR_CANCELED = 3;
+const SR_SKIPPED = 1; // on stopTimeUpdate.scheduleRelationship
+const SR_TRIP_SCHEDULED = 0;
+const SR_TRIP_CANCELED = 3;
 
 export function startRealtimePoller(): void {
   logger.info(
@@ -45,9 +53,9 @@ export function stopRealtimePoller(): void {
 }
 
 /**
- * Between pulls, periodically recompute each vehicle's position from the
- * stored predictions + current wall time. This moves vehicles smoothly on
- * the map without needing to re-fetch the feed.
+ * Between feed pulls, recompute each vehicle's position from the stored
+ * predictions + current wall time. Moves vehicles smoothly on the map
+ * without re-fetching.
  */
 function refineVehiclePositions(): void {
   const vehicles = getVehicles();
@@ -61,9 +69,22 @@ function refineVehiclePositions(): void {
     if (!pos) continue;
     v.lat = pos.lat;
     v.lon = pos.lon;
-    v.bearing = pos.bearing;
+    // EMA-smooth the bearing so the chevron doesn't flicker when a bus
+    // dwells at a stop and the prev/next segment bearing flips.
+    v.bearing = smoothBearing(v.bearing, pos.bearing);
     v.timestamp = Math.floor(nowMs / 1000);
   }
+}
+
+const BEARING_EMA_ALPHA = 0.3;
+function smoothBearing(prev: number, next: number): number {
+  if (!Number.isFinite(prev) || prev === 0) return next;
+  // Unwrap across the 0/360 boundary for a stable blend.
+  let diff = next - prev;
+  if (diff > 180) diff -= 360;
+  else if (diff < -180) diff += 360;
+  const blended = prev + BEARING_EMA_ALPHA * diff;
+  return (blended + 360) % 360;
 }
 
 async function pollOnce(): Promise<void> {
@@ -95,37 +116,80 @@ async function pollTripUpdates(): Promise<void> {
 
   const buffer = await response.arrayBuffer();
   const feed = rt.FeedMessage.decode(new Uint8Array(buffer));
+  const headerTs = toNumber(feed.header?.timestamp);
+  if (headerTs > 0) setFeedHeaderTimestamp(headerTs * 1000);
   processFeedEntities(feed.entity ?? []);
 }
 
+/**
+ * Two-pass merge of feed entities:
+ *   Pass 1 — consume every TripUpdate. These carry the passenger-relevant
+ *            delay and the ordered stopTimeUpdate[] predictions we use to
+ *            interpolate a position along the shape.
+ *   Pass 2 — enrich each Vehicle with its VehiclePosition (raw GPS lat/lon
+ *            and bearing) when present, but NEVER overwrite delay/tripId/
+ *            routeId/predictions. This prevents the longstanding bug where
+ *            a VehiclePosition without delay info was clobbering a good
+ *            TripUpdate because both handlers called `vehicles.set(...)`.
+ *
+ * TripUpdates that are CANCELED / all-SKIPPED are dropped outright.
+ */
 function processFeedEntities(
   entities: GtfsRealtimeBindings.transit_realtime.IFeedEntity[],
 ): void {
   const vehicles = getVehicles();
   const trips = getTrips();
-  const routes = getRoutes();
   const seenVehicleIds = new Set<string>();
   let vehiclePositionCount = 0;
   let interpolatedCount = 0;
+  let canceledCount = 0;
   const now = Date.now();
 
+  // Index VehiclePositions by vehicleId for the enrichment pass.
+  const vpByVehicleId = new Map<
+    string,
+    GtfsRealtimeBindings.transit_realtime.IVehiclePosition
+  >();
   for (const entity of entities) {
-    if (entity.tripUpdate) {
-      const v = processTripUpdate(entity.tripUpdate, trips, now);
-      if (v) {
-        vehicles.set(v.id, v);
-        seenVehicleIds.add(v.id);
-        interpolatedCount++;
-      }
-    }
     if (entity.vehicle) {
-      const v = processVehiclePosition(entity.vehicle, trips, routes);
-      if (v) {
-        vehicles.set(v.id, v);
-        seenVehicleIds.add(v.id);
-        vehiclePositionCount++;
-      }
+      const id = entity.vehicle.vehicle?.id ?? entity.vehicle.vehicle?.label ?? "";
+      if (id) vpByVehicleId.set(id, entity.vehicle);
     }
+  }
+
+  // Pass 1 — TripUpdate authoritative for delay + predictions.
+  const handledIds = new Set<string>();
+  for (const entity of entities) {
+    if (!entity.tripUpdate) continue;
+
+    const sr = entity.tripUpdate.trip?.scheduleRelationship ?? SR_TRIP_SCHEDULED;
+    if (sr === SR_TRIP_CANCELED) {
+      canceledCount++;
+      continue;
+    }
+
+    const v = processTripUpdate(entity.tripUpdate, trips, now);
+    if (!v) continue;
+    vehicles.set(v.id, v);
+    seenVehicleIds.add(v.id);
+    handledIds.add(v.id);
+    interpolatedCount++;
+  }
+
+  // Pass 2 — enrich with VehiclePosition, or create a stub if we never saw
+  // a TripUpdate for that vehicle.
+  for (const [id, vp] of vpByVehicleId) {
+    if (handledIds.has(id)) {
+      enrichWithVehiclePosition(vehicles.get(id)!, vp);
+      vehiclePositionCount++;
+      seenVehicleIds.add(id);
+      continue;
+    }
+    const stub = buildStubFromVehiclePosition(vp, trips);
+    if (!stub) continue;
+    vehicles.set(stub.id, stub);
+    seenVehicleIds.add(stub.id);
+    vehiclePositionCount++;
   }
 
   if (vehiclePositionCount > 0 && !getHasVehiclePositions()) {
@@ -142,6 +206,7 @@ function processFeedEntities(
       vehicles: vehicles.size,
       fromVehiclePosition: vehiclePositionCount,
       fromTripUpdate: interpolatedCount,
+      canceled: canceledCount,
     },
     "GTFS-RT trip updates processed",
   );
@@ -158,11 +223,19 @@ function processTripUpdate(
   const trip = trips.get(tripId);
   if (!trip) return null;
 
-  const delay = extractDelay(tu);
+  // Drop predictions for stops marked SKIPPED — they pollute both delay
+  // extraction and the interpolator with stale scheduled times.
+  const stopUpdates = (tu.stopTimeUpdate ?? []).filter(
+    (s) => (s.scheduleRelationship ?? 0) !== SR_SKIPPED,
+  );
+  if (stopUpdates.length === 0 && (tu.stopTimeUpdate?.length ?? 0) > 0) {
+    return null;
+  }
 
-  // Extract per-stop predictions from the RT update
+  const { delay, hasRealtimeDelay } = extractDelay(tu, stopUpdates);
+
   const predictions: PredictedStop[] = [];
-  for (const stu of tu.stopTimeUpdate ?? []) {
+  for (const stu of stopUpdates) {
     predictions.push({
       stopSequence: stu.stopSequence ?? 0,
       stopId: stu.stopId ?? "",
@@ -171,16 +244,17 @@ function processTripUpdate(
     });
   }
 
-  const position = interpolateVehiclePosition(tripId, delay, nowMs, predictions);
-  if (!position) return null;
-
   const vehicleId = tu.vehicle?.id ?? `tu-${tripId}`;
-  const currentStopSequence = tu.stopTimeUpdate?.[0]?.stopSequence ?? 0;
+  const currentStopSequence = stopUpdates[0]?.stopSequence ?? 0;
 
-  // Save predictions for later use (analytics, next-stop, etc.)
+  // Save predictions for later use (analytics, next-stop, etc.) — even if
+  // interpolation fails, these are consumed by /departures and /next-stops.
   if (predictions.length > 0) {
     getVehiclePredictions().set(vehicleId, predictions);
   }
+
+  const position = interpolateVehiclePosition(tripId, delay, nowMs, predictions);
+  if (!position) return null;
 
   return {
     id: vehicleId,
@@ -193,55 +267,100 @@ function processTripUpdate(
     stopSequence: currentStopSequence,
     label: tu.vehicle?.label ?? vehicleId,
     timestamp: toNumber(tu.timestamp) || Math.floor(nowMs / 1000),
+    isRealtimeDelay: hasRealtimeDelay,
   };
 }
 
 /**
- * Best-effort current delay for a trip.
+ * Best-effort current delay for a trip, from the passenger's perspective.
  *
- * GTFS-RT spec: per-stop delays (stopTimeUpdate[].arrival.delay or
- * departure.delay) are more specific than the top-level tripUpdate.delay.
- * Toulouse's feed populates tripUpdate.delay with 0 but fills the real
- * delays in stopTimeUpdate[], so we MUST check those first.
+ * GTFS-RT delays come both at the trip level and per stopTimeUpdate.
+ * Toulouse's feed populates the trip-level delay with 0 and fills the real
+ * values per-stop. Picking the wrong stop creates systematic bias:
+ *   - Using the FIRST stop's `arrival.delay` captures the bus's early
+ *     pre-positioning at the terminus (often -2 to -5 min) and falsely
+ *     labels the whole trip as "early".
+ *   - Using `departure.delay` for the last stop is meaningless (no one
+ *     boards there).
  *
- * The feed often retains stopTimeUpdates for stops already passed, with
- * stale delay values. We MUST skip those — otherwise a trip that ran early
- * an hour ago drags the displayed delay down by thousands of seconds.
- *
- * Strategy:
- *   1. Pick the first FUTURE stopTimeUpdate with a non-zero delay.
- *   2. Fall back to the last future stop's reported delay (even if 0).
- *   3. Fall back to tripUpdate.delay.
+ * Strategy (in order):
+ *   1. Scan stopTimeUpdates from the next intermediate stop onwards (skip
+ *      the very first stop for arrival-based delays — that's the terminus
+ *      pre-position bias we want to avoid).
+ *   2. Prefer `arrival.delay` (that's what the passenger waits for) except
+ *      at the last stop.
+ *   3. Filter out already-passed stops: tolerance 30s on feed-provided
+ *      stop times. Stale "past" entries are the #1 pollution source.
+ *   4. Fall back to trip.delay.
  */
-const PAST_STOP_TOLERANCE_S = 60;
-
-function extractDelay(
+export function extractDelay(
   tu: GtfsRealtimeBindings.transit_realtime.ITripUpdate,
-): number {
-  const updates = tu.stopTimeUpdate ?? [];
+  updatesOverride?: GtfsRealtimeBindings.transit_realtime.TripUpdate.IStopTimeUpdate[],
+): { delay: number; hasRealtimeDelay: boolean } {
+  const updates = updatesOverride ?? tu.stopTimeUpdate ?? [];
   const nowS = Math.floor(Date.now() / 1000);
   const cutoff = nowS - PAST_STOP_TOLERANCE_S;
 
+  if (updates.length === 0) {
+    if (tu.delay != null) return { delay: tu.delay, hasRealtimeDelay: true };
+    return { delay: 0, hasRealtimeDelay: false };
+  }
+
+  const minSeq = updates.reduce(
+    (m, s) => Math.min(m, s.stopSequence ?? Number.MAX_SAFE_INTEGER),
+    Number.MAX_SAFE_INTEGER,
+  );
+  const maxSeq = updates.reduce(
+    (m, s) => Math.max(m, s.stopSequence ?? 0),
+    0,
+  );
+
   let lastFutureDelay: number | null = null;
+  let terminusFallback: number | null = null;
+
   for (const stu of updates) {
+    const seq = stu.stopSequence ?? 0;
     const t = toNumber(stu.arrival?.time) || toNumber(stu.departure?.time);
-    if (t > 0 && t < cutoff) continue; // skip already-passed stops
+    if (t > 0 && t < cutoff) continue; // already-passed, stale
 
     const a = stu.arrival?.delay;
-    if (a != null && a !== 0) return a;
     const d = stu.departure?.delay;
-    if (d != null && d !== 0) return d;
+    const isFirst = seq === minSeq;
+    const isLast = seq === maxSeq;
 
+    // Terminus start: arrival.delay here is the pre-position bias. Keep
+    // only departure.delay as a weak fallback.
+    if (isFirst) {
+      if (d != null) terminusFallback = d;
+      continue;
+    }
+
+    // Last stop: departure.delay is meaningless (no one boards). Allow
+    // arrival.delay only.
+    if (isLast) {
+      if (a != null && a !== 0) return { delay: a, hasRealtimeDelay: true };
+      if (a != null) lastFutureDelay = a;
+      continue;
+    }
+
+    // Intermediate stop: arrival.delay is the passenger-relevant metric.
+    if (a != null && a !== 0) return { delay: a, hasRealtimeDelay: true };
+    if (d != null && d !== 0) return { delay: d, hasRealtimeDelay: true };
     if (a != null) lastFutureDelay = a;
     else if (d != null) lastFutureDelay = d;
   }
 
-  if (lastFutureDelay != null) return lastFutureDelay;
-
-  // Fallback: top-level trip delay
-  if (tu.delay != null) return tu.delay;
-  return 0;
+  if (lastFutureDelay != null) {
+    return { delay: lastFutureDelay, hasRealtimeDelay: true };
+  }
+  if (terminusFallback != null) {
+    return { delay: terminusFallback, hasRealtimeDelay: true };
+  }
+  if (tu.delay != null) return { delay: tu.delay, hasRealtimeDelay: true };
+  return { delay: 0, hasRealtimeDelay: false };
 }
+
+const PAST_STOP_TOLERANCE_S = 30;
 
 /**
  * Returns the delay relevant to a specific future stop, preferring that
@@ -255,7 +374,6 @@ export function delayAtStop(
 ): number {
   const p = predictions.find((x) => x.stopSequence === stopSequence);
   if (!p) return 0;
-  // If we have predicted time and scheduled time, compute the delta
   if (p.arrival > 0 && scheduledArrival > 0) {
     return p.arrival - Math.floor(scheduledArrival / 1000);
   }
@@ -265,10 +383,32 @@ export function delayAtStop(
   return 0;
 }
 
-function processVehiclePosition(
+function enrichWithVehiclePosition(
+  vehicle: Vehicle,
+  vp: GtfsRealtimeBindings.transit_realtime.IVehiclePosition,
+): void {
+  // Only adopt the raw GPS position if it's fresh — feeds occasionally
+  // send stale positions alongside a newer TripUpdate, in which case our
+  // interpolated position is closer to the truth.
+  const vpTs = toNumber(vp.timestamp);
+  if (vpTs > 0 && vpTs + 60 < vehicle.timestamp) return;
+
+  const lat = vp.position?.latitude ?? 0;
+  const lon = vp.position?.longitude ?? 0;
+  if (lat !== 0 || lon !== 0) {
+    vehicle.lat = lat;
+    vehicle.lon = lon;
+  }
+  const bearing = vp.position?.bearing;
+  if (bearing != null && bearing !== 0) {
+    vehicle.bearing = bearing;
+  }
+  if (vpTs > 0) vehicle.timestamp = vpTs;
+}
+
+function buildStubFromVehiclePosition(
   vp: GtfsRealtimeBindings.transit_realtime.IVehiclePosition,
   trips: Map<string, { routeId: string }>,
-  routes: Map<string, unknown>,
 ): Vehicle | null {
   const vehicleId = vp.vehicle?.id ?? vp.vehicle?.label ?? "";
   if (!vehicleId) return null;
@@ -287,7 +427,8 @@ function processVehiclePosition(
     delay: 0,
     stopSequence: vp.currentStopSequence ?? 0,
     label: vp.vehicle?.label ?? vehicleId,
-    timestamp: toNumber(vp.timestamp) || Date.now() / 1000,
+    timestamp: toNumber(vp.timestamp) || Math.floor(Date.now() / 1000),
+    isRealtimeDelay: false, // delay is a stub, not a measurement
   };
 }
 
@@ -310,18 +451,24 @@ function updateRouteStats(): void {
   const routes = getRoutes();
   const vehicles = getVehicles();
 
-  const countByRoute = new Map<string, { count: number; totalDelay: number }>();
+  const countByRoute = new Map<string, { count: number; totalDelay: number; rt: number }>();
   for (const v of vehicles.values()) {
-    const entry = countByRoute.get(v.routeId) ?? { count: 0, totalDelay: 0 };
+    const entry = countByRoute.get(v.routeId) ?? { count: 0, totalDelay: 0, rt: 0 };
     entry.count++;
-    entry.totalDelay += v.delay;
+    if (v.isRealtimeDelay) {
+      entry.totalDelay += v.delay;
+      entry.rt++;
+    }
     countByRoute.set(v.routeId, entry);
   }
 
   for (const [routeId, route] of routes) {
     const stats = countByRoute.get(routeId);
     route.vehicleCount = stats?.count ?? 0;
-    route.avgDelay = stats ? Math.round(stats.totalDelay / stats.count) : 0;
+    // Only average over vehicles with a real RT delay signal — avoids
+    // the old bug where VehiclePosition stubs at delay=0 dragged the
+    // route-level average to zero.
+    route.avgDelay = stats && stats.rt > 0 ? Math.round(stats.totalDelay / stats.rt) : 0;
   }
 }
 
@@ -404,5 +551,8 @@ function toNumber(
   if (typeof val === "number") return val;
   return (val as { toNumber?: () => number }).toNumber?.() ?? 0;
 }
+
+// Silence unused-SR-constant warnings for values kept for documentation.
+void SR_CANCELED;
 
 type Long = { toNumber: () => number };

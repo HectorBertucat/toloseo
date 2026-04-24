@@ -33,6 +33,11 @@ export interface Vehicle {
   stopSequence: number;
   label: string;
   timestamp: number;
+  // True when `delay` comes from a TripUpdate whose extractDelay logic found
+  // a usable passenger-relevant stopTimeUpdate. False for VehiclePosition-only
+  // entities (delay=0 is a stub, not a measurement). Used by analytics to
+  // avoid polluting the "on-time" bucket with synthetic zeros.
+  isRealtimeDelay?: boolean;
 }
 
 export interface NextStopInfo {
@@ -79,7 +84,16 @@ export interface DepartureInfo {
 
 // ── SSE event types ──────────────────────────────────────────────────
 
-export interface SSEInitEvent {
+export interface FeedHealth {
+  // Age of the upstream GTFS-RT feed header, in ms. Undefined if the server
+  // never received a header timestamp. Clients should grey out positions when
+  // this exceeds ~2 minutes.
+  feedAgeMs?: number;
+  feedStale?: boolean;
+  refineIntervalMs?: number;
+}
+
+export interface SSEInitEvent extends FeedHealth {
   type: "init";
   vehicles: Vehicle[];
   alerts: Alert[];
@@ -99,7 +113,7 @@ export interface SSEAlertEvent {
   timestamp: number;
 }
 
-export interface SSEHeartbeatEvent {
+export interface SSEHeartbeatEvent extends FeedHealth {
   type: "heartbeat";
   timestamp: number;
 }
@@ -112,21 +126,34 @@ export type SSEEvent =
 
 // ── Analytics types ──────────────────────────────────────────────────
 
+export interface DelayDistribution {
+  // Ordered buckets, aligned with DELAY_BUCKET_LABELS server-side.
+  veryEarly: number;  // delay < -300s (> 5 min early)
+  early: number;      // -300s <= delay < -60s
+  onTime: number;     // -60s <= delay <= 300s
+  late: number;       // 300s < delay <= 600s (up to 10 min late)
+  veryLate: number;   // delay > 600s
+}
+
 export interface DelayByHour {
   hour: number;
   avgDelay: number;
-  p50Delay: number;
-  p90Delay: number;
+  medianDelay: number;
+  p50Delay: number; // deprecated, kept for compatibility
+  p90Delay: number; // deprecated
   sampleCount: number;
+  distribution: DelayDistribution;
 }
 
 export interface ReliabilityScore {
   routeId: string;
   onTimePercent: number;
   avgDelay: number;
+  medianDelay: number;
   maxDelay: number;
   totalTrips: number;
   period: string;
+  distribution: DelayDistribution;
 }
 
 export interface AnalyticsSummary {

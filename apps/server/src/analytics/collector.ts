@@ -16,8 +16,17 @@ let collectorTimer: ReturnType<typeof setInterval> | null = null;
 // forever. 30 days is enough to troubleshoot a recent incident per-vehicle.
 const RETENTION_DAYS = 30;
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const ON_TIME_THRESHOLD_SECONDS = 300;
-const SANITY_BOUND_SECONDS = 1800;
+// Asymmetric on-time band matching the transit industry convention.
+// Early arrivals disrupt passengers (they miss the bus); late arrivals
+// within ~5 min are tolerable. A symmetric 5-minute band was the main
+// source of the "everything looks early" analytics bug.
+const ON_TIME_MIN_S = -60; // anything earlier is "early"
+const ON_TIME_MAX_S = 300; // anything later is "late"
+const VERY_EARLY_S = -300; // beyond that: very early
+const VERY_LATE_S = 600; // beyond that: very late
+// Tighter outlier gate — a 30-minute early/late snapshot is almost always
+// stale-feed noise that drags the averages off.
+const SANITY_BOUND_SECONDS = 900;
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -83,8 +92,9 @@ function collectSnapshot(): void {
     const hourlyStmt = db.prepare(`
       INSERT INTO hourly_stats
         (hour_bucket, route_id, service_date, sample_count, sum_delay,
-         min_delay, max_delay, on_time_count, early_count, late_count)
-      VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+         min_delay, max_delay, on_time_count, early_count, late_count,
+         very_early_count, very_late_count)
+      VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (hour_bucket, route_id) DO UPDATE SET
         sample_count = sample_count + 1,
         sum_delay = sum_delay + excluded.sum_delay,
@@ -96,7 +106,9 @@ function collectSnapshot(): void {
           THEN excluded.max_delay ELSE max_delay END,
         on_time_count = on_time_count + excluded.on_time_count,
         early_count = early_count + excluded.early_count,
-        late_count = late_count + excluded.late_count
+        late_count = late_count + excluded.late_count,
+        very_early_count = very_early_count + excluded.very_early_count,
+        very_late_count = very_late_count + excluded.very_late_count
     `);
 
     const hourBucket = Math.floor(now / 3600) * 3600;
@@ -106,7 +118,12 @@ function collectSnapshot(): void {
     const insertMany = db.transaction(() => {
       for (const v of vehicles.values()) {
         const predictions = predictionsMap.get(v.id) ?? null;
-        const isRealtime = predictions && predictions.length > 0 ? 1 : 0;
+        // A vehicle counts as "real-time" for analytics ONLY when its
+        // delay came from a TripUpdate (isRealtimeDelay). VehiclePosition
+        // stubs carry delay=0 synthetically — counting those as "on time"
+        // was the biggest contributor to the early/on-time skew.
+        const hasRtDelay = v.isRealtimeDelay === true;
+        const isRealtime = hasRtDelay ? 1 : 0;
 
         snapshotStmt.run(
           v.routeId,
@@ -120,10 +137,12 @@ function collectSnapshot(): void {
           isRealtime,
         );
 
-        if (isRealtime === 1 && Math.abs(v.delay) <= SANITY_BOUND_SECONDS) {
-          const onTime = Math.abs(v.delay) <= ON_TIME_THRESHOLD_SECONDS ? 1 : 0;
-          const early = v.delay < -ON_TIME_THRESHOLD_SECONDS ? 1 : 0;
-          const late = v.delay > ON_TIME_THRESHOLD_SECONDS ? 1 : 0;
+        if (hasRtDelay && v.delay >= -SANITY_BOUND_SECONDS && v.delay <= SANITY_BOUND_SECONDS) {
+          const onTime = v.delay >= ON_TIME_MIN_S && v.delay <= ON_TIME_MAX_S ? 1 : 0;
+          const early = v.delay < ON_TIME_MIN_S && v.delay >= VERY_EARLY_S ? 1 : 0;
+          const late = v.delay > ON_TIME_MAX_S && v.delay <= VERY_LATE_S ? 1 : 0;
+          const veryEarly = v.delay < VERY_EARLY_S ? 1 : 0;
+          const veryLate = v.delay > VERY_LATE_S ? 1 : 0;
           hourlyStmt.run(
             hourBucket,
             v.routeId,
@@ -134,6 +153,8 @@ function collectSnapshot(): void {
             onTime,
             early,
             late,
+            veryEarly,
+            veryLate,
           );
         }
 

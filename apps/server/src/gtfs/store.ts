@@ -16,11 +16,20 @@ export interface StopTimeEntry {
   arrivalTime: string;
   departureTime: string;
   stopSequence: number;
+  // GTFS-optional: distance along the trip shape (meters). Populated from
+  // stop_times.txt when the feed supplies it, else computed at load time.
+  shapeDistTraveled?: number;
 }
 
 export interface GeoJsonLineString {
   type: "LineString";
   coordinates: [number, number][];
+}
+
+export interface ShapeGeometry {
+  line: [number, number][]; // [lat, lon] per vertex
+  cumDist: number[]; // cumulative meters from start, per vertex
+  totalLength: number; // last entry of cumDist
 }
 
 export interface ServiceCalendar {
@@ -42,6 +51,15 @@ const routes = new Map<string, TransitLine>();
 const stops = new Map<string, Stop>();
 const trips = new Map<string, TripInfo>();
 const shapes = new Map<string, GeoJsonLineString>();
+// Precomputed geometry derived from each shape at load time: vertices as
+// [lat, lon] and cumulative distances per vertex. Avoids recomputing
+// Haversine on every interpolation tick.
+const shapeGeometries = new Map<string, ShapeGeometry>();
+// For each tripId, the distance-from-shape-start (meters) at every stop of
+// that trip's ordered stop_times. Populated at load time using either the
+// GTFS `shape_dist_traveled` column or, as a fallback, orthogonal projection
+// of each stop onto the shape.
+const stopDistByTrip = new Map<string, number[]>();
 const stopTimes = new Map<string, StopTimeEntry[]>();
 const vehicles = new Map<string, Vehicle>();
 // Per-vehicle predicted stop times from GTFS-RT tripUpdate.stopTimeUpdate
@@ -63,6 +81,10 @@ let alerts: Alert[] = [];
 let gtfsLoaded = false;
 let lastPollTime = 0;
 let hasVehiclePositions = false;
+// Timestamp (ms) of the most recently received GTFS-RT FeedMessage.header.
+// 0 until we've seen at least one. Surfaces as feedAgeMs on SSE so clients
+// can grey out stale data.
+let feedHeaderTimestamp = 0;
 
 // ── Getters ──────────────────────────────────────────────────────────
 
@@ -80,6 +102,14 @@ export function getTrips(): Map<string, TripInfo> {
 
 export function getShapes(): Map<string, GeoJsonLineString> {
   return shapes;
+}
+
+export function getShapeGeometries(): Map<string, ShapeGeometry> {
+  return shapeGeometries;
+}
+
+export function getStopDistByTrip(): Map<string, number[]> {
+  return stopDistByTrip;
 }
 
 export function getStopTimes(): Map<string, StopTimeEntry[]> {
@@ -116,6 +146,14 @@ export function getLastPollTime(): number {
 
 export function getHasVehiclePositions(): boolean {
   return hasVehiclePositions;
+}
+
+export function getFeedHeaderTimestamp(): number {
+  return feedHeaderTimestamp;
+}
+
+export function setFeedHeaderTimestamp(tsMs: number): void {
+  feedHeaderTimestamp = tsMs;
 }
 
 // ── Setters ──────────────────────────────────────────────────────────

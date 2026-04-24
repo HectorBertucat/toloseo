@@ -15,7 +15,9 @@ const HALO_LAYER_ID = "vehicles-halo";
 const CHEVRON_LAYER_ID = "vehicles-chevron";
 const CHEVRON_IMAGE_ID = "toloseo-chevron";
 
-/** How long (ms) to smoothly animate from the previous position to the new one. */
+/** How long (ms) to smoothly animate from the previous position to the new one.
+ *  Matches the server-side refine cadence so the marker reaches its new
+ *  position just as the next update arrives — no rubber-banding, no pauses. */
 const ANIMATION_DURATION_MS = 2000;
 
 interface VehicleProps {
@@ -26,6 +28,7 @@ interface VehicleProps {
   color: string;
   haloColor: string;
   selected: number;
+  stale: number;
   [key: string]: unknown;
 }
 
@@ -37,6 +40,7 @@ interface AnimatedVehicle {
   color: string;
   haloColor: string;
   selected: boolean;
+  stale: boolean;
   // Smooth position interpolation between server updates
   prevLat: number;
   prevLon: number;
@@ -47,9 +51,11 @@ interface AnimatedVehicle {
 
 function buildFeature(anim: AnimatedVehicle, nowMs: number): GeoJSON.Feature<GeoJSON.Point, VehicleProps> {
   const t = Math.min(1, (nowMs - anim.updatedAt) / ANIMATION_DURATION_MS);
-  const eased = easeOutCubic(t);
-  const lat = anim.prevLat + (anim.targetLat - anim.prevLat) * eased;
-  const lon = anim.prevLon + (anim.targetLon - anim.prevLon) * eased;
+  // Linear interpolation: real buses move at roughly constant speed between
+  // two server ticks, so easing (decelerating) makes the marker lag behind
+  // reality in the second half of each interval.
+  const lat = anim.prevLat + (anim.targetLat - anim.prevLat) * t;
+  const lon = anim.prevLon + (anim.targetLon - anim.prevLon) * t;
 
   // Fallback bearing from movement vector when the feed reports 0
   let bearing = anim.bearing;
@@ -73,6 +79,7 @@ function buildFeature(anim: AnimatedVehicle, nowMs: number): GeoJSON.Feature<Geo
       color: anim.color,
       haloColor: anim.haloColor,
       selected: anim.selected ? 1 : 0,
+      stale: anim.stale ? 1 : 0,
     },
   };
 }
@@ -114,9 +121,10 @@ function ensureChevronImage(map: maplibregl.Map): void {
   );
 }
 
-function easeOutCubic(t: number): number {
-  return 1 - Math.pow(1 - t, 3);
-}
+// Note: easeOutCubic removed. Position interpolation is now linear because
+// real vehicles move at constant speed between ticks. The bearing
+// smoothing (server-side EMA) and visual ring / chevron already soften
+// the perceived motion.
 
 function addSourceAndLayers(map: maplibregl.Map): void {
   if (map.getSource(SOURCE_ID)) return;
@@ -169,11 +177,13 @@ function addSourceAndLayers(map: maplibregl.Map): void {
       "circle-stroke-color": "#ffffff",
       "circle-opacity": [
         "case",
+        ["==", ["get", "stale"], 1], 0.25,
         ["==", ["get", "selected"], 1], 1,
         0.35,
       ],
       "circle-stroke-opacity": [
         "case",
+        ["==", ["get", "stale"], 1], 0.25,
         ["==", ["get", "selected"], 1], 1,
         0.3,
       ],
@@ -245,6 +255,7 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
 
     const seen = new Set<string>();
     const nowMs = performance.now();
+    const stale = transitState.feedStale;
 
     for (const v of vehicles) {
       seen.add(v.id);
@@ -263,6 +274,7 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
           color: routeColor,
           haloColor,
           selected,
+          stale,
           prevLat: v.lat,
           prevLon: v.lon,
           targetLat: v.lat,
@@ -278,9 +290,8 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
       if (existing.targetLat !== v.lat || existing.targetLon !== v.lon) {
         // Start a new animation from the CURRENT animated position
         const t = Math.min(1, (nowMs - existing.updatedAt) / ANIMATION_DURATION_MS);
-        const eased = easeOutCubic(t);
-        const currentLat = existing.prevLat + (existing.targetLat - existing.prevLat) * eased;
-        const currentLon = existing.prevLon + (existing.targetLon - existing.prevLon) * eased;
+        const currentLat = existing.prevLat + (existing.targetLat - existing.prevLat) * t;
+        const currentLon = existing.prevLon + (existing.targetLon - existing.prevLon) * t;
 
         existing.prevLat = currentLat;
         existing.prevLon = currentLon;
@@ -297,6 +308,7 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
       existing.color = routeColor;
       existing.haloColor = haloColor;
       existing.selected = selected;
+      existing.stale = stale;
     }
 
     // Remove vehicles no longer in the store
@@ -371,10 +383,12 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
     // Track reactive deps
     void transitState.vehicles;
     void transitState.lines;
+    void transitState.feedStale;
     void selectedLineIds();
     syncAnimationsFromStore();
     // Ensure at least one frame is drawn for non-positional changes (selection,
-    // delay recolor), and that the RAF loop resumes if we just added motion.
+    // delay recolor, stale status), and that the RAF loop resumes if we just
+    // added motion.
     if (rafId === null) startAnimationLoop();
   });
 

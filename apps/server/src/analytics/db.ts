@@ -49,6 +49,7 @@ function runMigrations(database: Database): void {
   // because bun:sqlite is synchronous and CREATE INDEX on a large
   // delay_snapshots table blocks the event loop for minutes.
   if (currentVersion < 6) applyMigration6(database);
+  if (currentVersion < 7) applyMigration7(database);
 }
 
 /**
@@ -174,6 +175,24 @@ function applyMigration5(database: Database): void {
   logger.info("applied migration 5: composite indexes on delay_snapshots");
 }
 
+function applyMigration7(database: Database): void {
+  // Finer-grained distribution: split early/late into "slightly" and
+  // "very" buckets. Uses asymmetric thresholds (-60s / +300s) that match
+  // the transit industry standard — a bus 90s early makes passengers miss
+  // it, while 90s late is still "on time".
+  //
+  // Columns added with a default of 0 so existing rows stay consistent.
+  // Backfill is triggered explicitly (see runBackfillHourlyStats).
+  database.run(
+    "ALTER TABLE hourly_stats ADD COLUMN very_early_count INTEGER NOT NULL DEFAULT 0",
+  );
+  database.run(
+    "ALTER TABLE hourly_stats ADD COLUMN very_late_count INTEGER NOT NULL DEFAULT 0",
+  );
+  database.run("INSERT INTO schema_version (version) VALUES (7)");
+  logger.info("applied migration 7: hourly_stats.very_early/very_late_count");
+}
+
 function applyMigration6(database: Database): void {
   // Pre-aggregated per-hour statistics. Millions of raw snapshots collapse
   // into ~route_count * hours_retained rows — analytics queries touch a few
@@ -220,10 +239,13 @@ export async function runBackfillHourlyStats(): Promise<void> {
 
   try {
     database.run("BEGIN");
+    // Asymmetric on-time band: [-60s, +300s]. Matches the collector's
+    // buckets and the transit industry standard.
     database.run(`
       INSERT OR REPLACE INTO hourly_stats
         (hour_bucket, route_id, service_date, sample_count, sum_delay,
-         min_delay, max_delay, on_time_count, early_count, late_count)
+         min_delay, max_delay, on_time_count, early_count, late_count,
+         very_early_count, very_late_count)
       SELECT
         (recorded_at / 3600) * 3600 AS hour_bucket,
         route_id,
@@ -232,11 +254,13 @@ export async function runBackfillHourlyStats(): Promise<void> {
         SUM(delay_seconds) AS sum_delay,
         MIN(delay_seconds) AS min_delay,
         MAX(delay_seconds) AS max_delay,
-        SUM(CASE WHEN ABS(delay_seconds) <= 300 THEN 1 ELSE 0 END) AS on_time_count,
-        SUM(CASE WHEN delay_seconds < -300 THEN 1 ELSE 0 END) AS early_count,
-        SUM(CASE WHEN delay_seconds > 300 THEN 1 ELSE 0 END) AS late_count
+        SUM(CASE WHEN delay_seconds >= -60 AND delay_seconds <= 300 THEN 1 ELSE 0 END) AS on_time_count,
+        SUM(CASE WHEN delay_seconds < -60 AND delay_seconds >= -300 THEN 1 ELSE 0 END) AS early_count,
+        SUM(CASE WHEN delay_seconds > 300 AND delay_seconds <= 600 THEN 1 ELSE 0 END) AS late_count,
+        SUM(CASE WHEN delay_seconds < -300 THEN 1 ELSE 0 END) AS very_early_count,
+        SUM(CASE WHEN delay_seconds > 600 THEN 1 ELSE 0 END) AS very_late_count
       FROM delay_snapshots
-      WHERE is_realtime = 1 AND ABS(delay_seconds) <= 1800
+      WHERE is_realtime = 1 AND delay_seconds >= -900 AND delay_seconds <= 900
       GROUP BY hour_bucket, route_id
     `);
     database.run("COMMIT");

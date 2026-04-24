@@ -2,6 +2,7 @@ import {
   type Component,
   createEffect,
   createResource,
+  createSignal,
   onCleanup,
   untrack,
 } from "solid-js";
@@ -17,21 +18,48 @@ interface StopPopupProps {
   map: maplibregl.Map;
 }
 
+// Auto-refresh cadence while a stop popup is open. Matches the dedicated
+// departure board page — without this, users stare at a snapshot of the
+// arrival times that's stale within 30s and looks wrong next to the live
+// map.
+const POPUP_REFRESH_MS = 15_000;
+
 const StopPopup: Component<StopPopupProps> = (props) => {
   let activePopup: maplibregl.Popup | null = null;
   let currentStopId: string | null = null;
+  let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+  const [refreshTick, setRefreshTick] = createSignal(0);
 
   const [departures] = createResource(
-    selectedStop,
-    async (stopId): Promise<DepartureInfo[]> => {
-      if (!stopId) return [];
+    () => {
+      const id = selectedStop();
+      // Include the tick in the key so createResource re-fetches on interval.
+      return id ? ({ id, tick: refreshTick() } as const) : null;
+    },
+    async (source): Promise<DepartureInfo[]> => {
+      if (!source) return [];
       try {
-        return await getStopDepartures(stopId);
+        return await getStopDepartures(source.id);
       } catch {
         return [];
       }
     },
   );
+
+  function stopRefreshTimer(): void {
+    if (refreshTimer !== null) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+    }
+  }
+
+  function startRefreshTimer(): void {
+    stopRefreshTimer();
+    refreshTimer = setInterval(() => {
+      setRefreshTick((n) => n + 1);
+    }, POPUP_REFRESH_MS);
+  }
 
   function buildPopupHTML(
     stopName: string,
@@ -142,6 +170,7 @@ const StopPopup: Component<StopPopupProps> = (props) => {
   }
 
   function closePopup(): void {
+    stopRefreshTimer();
     if (activePopup) {
       activePopup.off("close", handlePopupClose);
       activePopup.remove();
@@ -196,6 +225,7 @@ const StopPopup: Component<StopPopupProps> = (props) => {
     popup.on("close", handlePopupClose);
 
     activePopup = popup;
+    startRefreshTimer();
   });
 
   // Effect 2: update popup HTML when departures change (without recreating).
