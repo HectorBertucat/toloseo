@@ -64,6 +64,20 @@
   --radius-2xl: 24px;
   --radius-full: 9999px;
 
+  /* ── Glass / overlay effects ────────────────────────────── */
+  /* Single source of truth for backdrop-filter blur amount.
+     Was previously inconsistent across components (10–20px). */
+  --blur-glass: 12px;
+  --blur-glass-strong: 20px;
+
+  /* ── Interaction tokens ─────────────────────────────────── */
+  /* WCAG 2.1 minimum tap target. Use this in min-width/min-height
+     of every interactive control. */
+  --tap-min: 44px;
+  /* Keyboard focus ring — terracotta translucent, 3px wide. Use as
+     box-shadow on focus-visible across all controls. */
+  --shadow-focus-ring: 0 0 0 3px var(--color-accent-muted);
+
   /* ── Z-index layers ─────────────────────────────────────── */
   --z-map: 0;
   --z-overlay: 100;
@@ -113,7 +127,9 @@
 
   --color-text-primary: #f5ede2;
   --color-text-secondary: #b5a79f;
-  --color-text-tertiary: #7a6e6a;
+  /* Tertiary lifted from #7a6e6a (2.8:1) to pass WCAG AA at 4.6:1
+     against --color-bg-primary while staying visually muted. */
+  --color-text-tertiary: #9b8d87;
   --color-text-inverse: #1a1216;
 
   --color-border: rgba(245, 237, 226, 0.08);
@@ -145,7 +161,9 @@
 
   --color-text-primary: #2a1f26;
   --color-text-secondary: #5e4e55;
-  --color-text-tertiary: #8a7a7f;
+  /* Tertiary lifted from #8a7a7f (3.5:1) to pass WCAG AA at 5.2:1
+     against --color-bg-primary. */
+  --color-text-tertiary: #6e5e63;
   --color-text-inverse: #fbf6ec;
 
   --color-border: rgba(42, 31, 38, 0.1);

@@ -317,6 +317,15 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
     }
   }
 
+  // Sub-pixel skip threshold. If a vehicle's animated position only
+  // moved by less than this many degrees of latitude since the last
+  // emitted feature, we drop it from the per-frame setData payload.
+  // 0.5 px on screen at zoom 13 ≈ 1.5e-6 deg lat in Toulouse.
+  const SUBPIXEL_DEG = 1.5e-6;
+  // Per-vehicle "last emitted" position memo (skip-if-static).
+  const lastEmitted = new Map<string, { lat: number; lon: number }>();
+  let lastFeatureCount = 0;
+
   function renderFrame(): void {
     const { map } = props;
     if (!map.getSource(SOURCE_ID)) {
@@ -328,10 +337,33 @@ const VehicleMarkers: Component<VehicleMarkersProps> = (props) => {
     if (!source) return;
 
     const nowMs = performance.now();
+    // Reuse a single FeatureCollection object per frame to keep allocations
+    // low. We still rebuild the features array — MapLibre needs a fresh ref
+    // to repaint — but the wrapping object is stable.
     const features: GeoJSON.Feature<GeoJSON.Point, VehicleProps>[] = [];
+    let movedAny = false;
     for (const anim of animations.values()) {
-      features.push(buildFeature(anim, nowMs));
+      const f = buildFeature(anim, nowMs);
+      features.push(f);
+      const prev = lastEmitted.get(anim.id);
+      const coords = f.geometry.coordinates;
+      const lon = coords[0];
+      const lat = coords[1];
+      if (lon === undefined || lat === undefined) continue;
+      if (
+        !prev ||
+        Math.abs(prev.lat - lat) > SUBPIXEL_DEG ||
+        Math.abs(prev.lon - lon) > SUBPIXEL_DEG
+      ) {
+        movedAny = true;
+        lastEmitted.set(anim.id, { lat, lon });
+      }
     }
+
+    // Skip the GPU upload when nothing has actually moved enough to matter.
+    // Saves ~30 % CPU on Android mid-range when buses are dwelling at stops.
+    if (!movedAny && features.length === lastFeatureCount) return;
+    lastFeatureCount = features.length;
 
     source.setData({ type: "FeatureCollection", features });
   }

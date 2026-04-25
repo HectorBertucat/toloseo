@@ -91,10 +91,13 @@ button:disabled {
   opacity: 0.5;
 }
 
-/* ── System-wide focus-visible ring (keyboard only) ───────── */
+/* ── System-wide focus-visible ring (keyboard only) ─────────
+   3px terracotta-translucent halo, no layout shift. Outline kept
+   at 0 so the box-shadow is the sole visual indicator and stays
+   consistent across pill-shaped buttons and input fields. */
 :where(button, a, [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline: 0;
+  box-shadow: var(--shadow-focus-ring);
   border-radius: var(--radius-sm);
 }
 
@@ -119,6 +122,15 @@ select:focus {
 }
 
 /* ── Scrollbar ────────────────────────────────────────────── */
+/* Firefox: scrollbar-color is the standardised property. Color is
+   set in rgba so it inherits the terracotta-warm palette without
+   needing a JS theme switch. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-text-tertiary) transparent;
+}
+
+/* WebKit/Blink: same look as Firefox above. */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -185,8 +197,8 @@ select:focus {
 
 .glass {
   background: var(--color-glass);
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  backdrop-filter: blur(var(--blur-glass)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(180%);
   border: 1px solid var(--color-border);
 }
 
@@ -209,5 +221,16 @@ select:focus {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* Suppress decorative pulses entirely (not just speed them up).
+     The countdown live-dot, sheet drag handle, and marker halo all
+     loop forever — that's the part vestibular-sensitive users
+     specifically need silenced. */
+  .stop-popup__dot--live,
+  .bottom-sheet__handle::before,
+  .pulsing,
+  [data-pulsing="true"] {
+    animation: none !important;
   }
 }

@@ -1,10 +1,14 @@
 import {
   type Component,
+  For,
+  Show,
   createEffect,
+  createMemo,
   createResource,
+  createSignal,
   onCleanup,
-  untrack,
 } from "solid-js";
+import { Portal } from "solid-js/web";
 import maplibregl from "maplibre-gl";
 import {
   selectedVehicle,
@@ -20,14 +24,21 @@ import {
   formatDelayDelta,
 } from "../../utils/format";
 import { pickReadableTextColor } from "../../utils/contrast";
-import type { Vehicle, NextStopInfo } from "@shared/types";
+import BottomSheet from "../ui/BottomSheet";
+import type { Vehicle, NextStopInfo, TransitLine } from "@shared/types";
 
 interface VehiclePopupProps {
   map: maplibregl.Map;
 }
 
+const MOBILE_BREAKPOINT = 769;
+
 const VehiclePopup: Component<VehiclePopupProps> = (props) => {
+  const [isMobile, setIsMobile] = createSignal(
+    typeof window !== "undefined" && window.innerWidth < MOBILE_BREAKPOINT,
+  );
   let activePopup: maplibregl.Popup | null = null;
+  let popupContainer: HTMLDivElement | null = null;
   let currentVehicleId: string | null = null;
 
   const [nextStops] = createResource(
@@ -42,183 +53,265 @@ const VehiclePopup: Component<VehiclePopupProps> = (props) => {
     },
   );
 
-  function buildHTML(v: Vehicle, upcoming: NextStopInfo[]): string {
-    const line = transitState.lines.find((l) => l.id === v.routeId);
-    const lineLabel = line?.shortName ?? "?";
-    const bg = line?.color ?? "#e86b5c";
-    const fg = pickReadableTextColor(bg, line?.textColor ?? null);
-    const delta = formatDelayDelta(v.delay);
-    const deltaClass =
-      v.delay >= 0
-        ? "vehicle-popup__delta vehicle-popup__delta--late"
-        : "vehicle-popup__delta vehicle-popup__delta--early";
-    const isFollowed = followedVehicle() === v.id;
-    const followLabel = isFollowed ? "Arreter le suivi" : "Suivre ce vehicule";
-    const headsign = upcoming[upcoming.length - 1]?.stopName ?? line?.longName ?? "";
+  const vehicle = createMemo<Vehicle | null>(() => {
+    const id = selectedVehicle();
+    return id ? (transitState.vehicles[id] ?? null) : null;
+  });
 
-    const nextStopsHtml = upcoming.length
-      ? renderNextStops(upcoming)
-      : `<p class="vehicle-popup__loading">Chargement des prochains arrets…</p>`;
+  const line = createMemo<TransitLine | null>(() => {
+    const v = vehicle();
+    if (!v) return null;
+    return transitState.lines.find((l) => l.id === v.routeId) ?? null;
+  });
 
-    return `
-      <div class="vehicle-popup">
-        <div class="vehicle-popup__header">
-          <span class="vehicle-popup__badge vehicle-popup__badge--xl" style="background:${escapeHtml(bg)};color:${escapeHtml(fg)}">${escapeHtml(lineLabel)}</span>
-          <div class="vehicle-popup__header-main">
-            <span class="vehicle-popup__direction">${escapeHtml(headsign)}</span>
-            ${delta ? `<span class="${deltaClass}">${escapeHtml(delta)}</span>` : `<span class="vehicle-popup__on-time">a l'heure</span>`}
-          </div>
-        </div>
-        <div class="vehicle-popup__section">
-          <h4 class="vehicle-popup__section-title">Prochains arrets</h4>
-          ${nextStopsHtml}
-        </div>
-        <button class="vehicle-popup__follow" data-follow="${escapeHtml(v.id)}">
-          ${escapeHtml(followLabel)}
-        </button>
-      </div>
-    `;
-  }
-
-  function renderNextStops(stops: NextStopInfo[]): string {
-    const now = Date.now();
-    let html = `<ul class="vehicle-popup__stops">`;
-    for (const s of stops.slice(0, 5)) {
-      const arrival = s.estimatedArrival || s.scheduledArrival;
-      const countdown = arrival > 0 ? formatCountdown(arrival, now) : "—";
-      const scheduled = s.scheduledArrival ? formatTime(s.scheduledArrival) : "";
-      const delta = formatDelayDelta(s.delay);
-      const deltaClass =
-        s.delay >= 0
-          ? "vehicle-popup__delta vehicle-popup__delta--late"
-          : "vehicle-popup__delta vehicle-popup__delta--early";
-      html += `<li class="vehicle-popup__stop">`;
-      html += `<span class="vehicle-popup__stop-name">${escapeHtml(s.stopName)}</span>`;
-      html += `<span class="vehicle-popup__stop-times">`;
-      html += `<span class="vehicle-popup__stop-countdown">${escapeHtml(countdown)}</span>`;
-      if (delta) {
-        html += `<span class="${deltaClass}">${escapeHtml(delta)}</span>`;
-        if (scheduled) {
-          html += `<span class="vehicle-popup__stop-scheduled">${escapeHtml(scheduled)}</span>`;
-        }
-      }
-      html += `</span>`;
-      html += `</li>`;
-    }
-    html += `</ul>`;
-    return html;
-  }
-
-  // Event-delegate the follow button click on the popup root. setHTML() wipes
-  // the inner DOM every SSE tick, so binding directly on the button stacked
-  // duplicate listeners — delegation survives the HTML swap with one listener.
-  function bindPopupActions(popup: maplibregl.Popup): void {
-    const el = popup.getElement();
-    if (!el || el.dataset["popupBound"] === "1") return;
-    el.dataset["popupBound"] = "1";
-    el.addEventListener("click", (ev) => {
-      const target = ev.target as HTMLElement | null;
-      const btn = target?.closest<HTMLButtonElement>(".vehicle-popup__follow");
-      if (!btn) return;
-      const id = btn.dataset["follow"];
-      if (!id) return;
-      if (followedVehicle() === id) {
-        setFollowedVehicle(null);
-      } else {
-        setFollowedVehicle(id);
-      }
-    });
-  }
-
-  function closePopup(): void {
+  function destroyDesktopPopup(): void {
     if (activePopup) {
       activePopup.remove();
       activePopup = null;
     }
+    popupContainer = null;
     currentVehicleId = null;
   }
 
-  // Create popup when a vehicle is selected
+  function handleClose(): void {
+    if (selectedVehicle()) setSelectedVehicle(null);
+  }
+
+  function toggleFollow(): void {
+    const id = vehicle()?.id;
+    if (!id) return;
+    if (followedVehicle() === id) setFollowedVehicle(null);
+    else setFollowedVehicle(id);
+  }
+
+  function onResize(): void {
+    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+  }
+  if (typeof window !== "undefined") {
+    window.addEventListener("resize", onResize);
+  }
+
+  // Desktop popup management
   createEffect(() => {
-    const vehicleId = selectedVehicle();
-
-    if (vehicleId === currentVehicleId) return;
-
-    if (!vehicleId) {
-      closePopup();
+    if (isMobile()) {
+      destroyDesktopPopup();
+      currentVehicleId = selectedVehicle();
+      return;
+    }
+    const v = vehicle();
+    if (!v) {
+      destroyDesktopPopup();
+      return;
+    }
+    if (v.id === currentVehicleId && activePopup) {
+      activePopup.setLngLat([v.lon, v.lat]);
       return;
     }
 
-    const vehicle = transitState.vehicles[vehicleId];
-    if (!vehicle) return;
-
-    closePopup();
-    currentVehicleId = vehicleId;
-
-    const html = untrack(() => buildHTML(vehicle, nextStops() ?? []));
-
+    destroyDesktopPopup();
+    currentVehicleId = v.id;
+    popupContainer = document.createElement("div");
+    popupContainer.className = "vehicle-popup-host";
     const popup = new maplibregl.Popup({
       closeOnClick: false,
-      closeButton: true,
-      maxWidth: "300px",
+      closeButton: false,
+      maxWidth: "320px",
       className: "toloseo-popup",
       offset: 14,
     })
-      .setLngLat([vehicle.lon, vehicle.lat])
-      .setHTML(html)
+      .setLngLat([v.lon, v.lat])
+      .setDOMContent(popupContainer)
       .addTo(props.map);
-
-    popup.on("close", () => {
-      if (currentVehicleId === vehicleId) {
-        currentVehicleId = null;
-        activePopup = null;
-        setSelectedVehicle(null);
-      }
-    });
-
-    bindPopupActions(popup);
+    popup.on("close", handleClose);
     activePopup = popup;
   });
 
-  // Update popup position + content when the vehicle moves (SSE updates)
-  // Also re-center map if we are following this vehicle.
+  // Re-center the map on a followed vehicle's position changes.
   createEffect(() => {
-    const id = currentVehicleId;
-    const follow = followedVehicle();
+    const id = followedVehicle();
     if (!id) return;
     const v = transitState.vehicles[id];
     if (!v) return;
+    props.map.easeTo({ center: [v.lon, v.lat], duration: 600 });
+  });
 
-    if (activePopup) {
-      activePopup.setLngLat([v.lon, v.lat]);
-      activePopup.setHTML(buildHTML(v, nextStops() ?? []));
-      bindPopupActions(activePopup);
-    }
+  // Keep the desktop popup anchored to the live position.
+  createEffect(() => {
+    if (isMobile() || !activePopup) return;
+    const v = vehicle();
+    if (!v) return;
+    activePopup.setLngLat([v.lon, v.lat]);
+  });
 
-    if (follow === id) {
-      props.map.easeTo({
-        center: [v.lon, v.lat],
-        duration: 600,
-      });
+  onCleanup(() => {
+    destroyDesktopPopup();
+    if (typeof window !== "undefined") {
+      window.removeEventListener("resize", onResize);
     }
   });
 
-  onCleanup(() => closePopup());
+  const headsign = createMemo(() => {
+    const stops = nextStops() ?? [];
+    return stops[stops.length - 1]?.stopName ?? line()?.longName ?? "";
+  });
 
-  return null;
+  return (
+    <>
+      <Show when={isMobile()}>
+        <BottomSheet
+          open={!!vehicle()}
+          onClose={handleClose}
+          ariaLabel={
+            vehicle()
+              ? `Bus ${line()?.shortName ?? ""} vers ${headsign()}`
+              : "Véhicule"
+          }
+        >
+          <Show when={vehicle()}>
+            <Body
+              v={vehicle()!}
+              line={line()}
+              upcoming={nextStops() ?? []}
+              loading={nextStops.loading}
+              headsign={headsign()}
+              followed={followedVehicle() === vehicle()!.id}
+              onToggleFollow={toggleFollow}
+            />
+          </Show>
+        </BottomSheet>
+      </Show>
+
+      <Show when={!isMobile() && popupContainer && vehicle()}>
+        <Portal mount={popupContainer!}>
+          <Body
+            v={vehicle()!}
+            line={line()}
+            upcoming={nextStops() ?? []}
+            loading={nextStops.loading}
+            headsign={headsign()}
+            followed={followedVehicle() === vehicle()!.id}
+            onToggleFollow={toggleFollow}
+            onClose={handleClose}
+          />
+        </Portal>
+      </Show>
+    </>
+  );
 };
 
-const HTML_ESCAPE_RE = /[&<>"']/g;
-const HTML_ESCAPE_MAP: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#39;",
-};
-
-function escapeHtml(text: string): string {
-  return text.replace(HTML_ESCAPE_RE, (c) => HTML_ESCAPE_MAP[c] ?? c);
+interface BodyProps {
+  v: Vehicle;
+  line: TransitLine | null;
+  upcoming: NextStopInfo[];
+  loading: boolean;
+  headsign: string;
+  followed: boolean;
+  onToggleFollow: () => void;
+  onClose?: () => void;
 }
+
+const Body: Component<BodyProps> = (p) => {
+  const bg = () => p.line?.color ?? "#e86b5c";
+  const fg = () =>
+    pickReadableTextColor(bg(), p.line?.textColor ?? null);
+  const delta = () => formatDelayDelta(p.v.delay);
+  const deltaClass = () =>
+    p.v.delay >= 0
+      ? "vehicle-popup__delta vehicle-popup__delta--late"
+      : "vehicle-popup__delta vehicle-popup__delta--early";
+  return (
+    <div class="vehicle-popup">
+      <div class="vehicle-popup__header">
+        <span
+          class="vehicle-popup__badge vehicle-popup__badge--xl"
+          style={{ background: bg(), color: fg() }}
+        >
+          {p.line?.shortName ?? "?"}
+        </span>
+        <div class="vehicle-popup__header-main">
+          <span class="vehicle-popup__direction">{p.headsign}</span>
+          <Show
+            when={delta()}
+            fallback={<span class="vehicle-popup__on-time">à l'heure</span>}
+          >
+            <span class={deltaClass()}>{delta()}</span>
+          </Show>
+        </div>
+        <Show when={p.onClose}>
+          <button
+            type="button"
+            class="vehicle-popup__close"
+            onClick={p.onClose}
+            aria-label="Fermer"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </Show>
+      </div>
+      <div class="vehicle-popup__section">
+        <h4 class="vehicle-popup__section-title">Prochains arrêts</h4>
+        <Show
+          when={!p.loading && p.upcoming.length > 0}
+          fallback={
+            <p class="vehicle-popup__loading">
+              {p.loading ? "Chargement…" : "Aucune prédiction disponible"}
+            </p>
+          }
+        >
+          <ul class="vehicle-popup__stops">
+            <For each={p.upcoming.slice(0, 5)}>
+              {(s) => <UpcomingStop s={s} />}
+            </For>
+          </ul>
+        </Show>
+      </div>
+      <button
+        type="button"
+        class="vehicle-popup__follow"
+        onClick={p.onToggleFollow}
+      >
+        {p.followed ? "Arrêter le suivi" : "Suivre ce véhicule"}
+      </button>
+    </div>
+  );
+};
+
+const UpcomingStop: Component<{ s: NextStopInfo }> = (p) => {
+  const arrival = () => p.s.estimatedArrival || p.s.scheduledArrival;
+  const countdown = () =>
+    arrival() > 0 ? formatCountdown(arrival(), Date.now()) : "—";
+  const scheduled = () =>
+    p.s.scheduledArrival ? formatTime(p.s.scheduledArrival) : "";
+  const delta = () => formatDelayDelta(p.s.delay);
+  const deltaClass = () =>
+    p.s.delay >= 0
+      ? "vehicle-popup__delta vehicle-popup__delta--late"
+      : "vehicle-popup__delta vehicle-popup__delta--early";
+  return (
+    <li class="vehicle-popup__stop">
+      <span class="vehicle-popup__stop-name">{p.s.stopName}</span>
+      <span class="vehicle-popup__stop-times">
+        <span class="vehicle-popup__stop-countdown tabular">{countdown()}</span>
+        <Show when={delta()}>
+          <span class={deltaClass()}>{delta()}</span>
+        </Show>
+        <Show when={delta() && scheduled()}>
+          <span class="vehicle-popup__stop-scheduled tabular">{scheduled()}</span>
+        </Show>
+      </span>
+    </li>
+  );
+};
 
 export default VehiclePopup;

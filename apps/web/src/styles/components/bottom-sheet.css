@@ -1,0 +1,179 @@
+/* ── Bottom sheet ───────────────────────────────────────────────
+   Mobile-first modal that slides up from the bottom. Two snap points
+   (mid 50svh, full 90svh). Used in place of MapLibre popups on touch.
+*/
+
+.bottom-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  pointer-events: none;
+}
+
+.bottom-sheet__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  pointer-events: auto;
+  animation: bottom-sheet-fade-in 220ms var(--ease-out-quart) forwards;
+}
+
+@keyframes bottom-sheet-fade-in {
+  to {
+    opacity: 1;
+  }
+}
+
+.bottom-sheet__panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--color-bg-elevated);
+  border-top-left-radius: var(--radius-2xl);
+  border-top-right-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-xl);
+  border-top: 1px solid var(--color-border);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  /* Account for the iOS home indicator. */
+  padding-bottom: var(--safe-bottom);
+  /* Spring transform so resizing a snap feels weighty but quick. */
+  transition:
+    height var(--transition-spring),
+    transform var(--transition-base);
+  /* Slide-up entrance. */
+  animation: bottom-sheet-slide-up 280ms var(--ease-out-quart);
+  will-change: transform, height;
+}
+
+@keyframes bottom-sheet-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.bottom-sheet[data-snap="mid"] .bottom-sheet__panel {
+  height: 50svh;
+  max-height: 50dvh;
+}
+
+.bottom-sheet[data-snap="full"] .bottom-sheet__panel {
+  height: 90svh;
+  max-height: calc(100dvh - var(--safe-top));
+}
+
+/* Drag handle: WCAG-compliant 44px tap target (visually a thin pill). */
+.bottom-sheet__handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap-min);
+  background: transparent;
+  border: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.bottom-sheet__handle:active {
+  cursor: grabbing;
+}
+
+.bottom-sheet__handle-bar {
+  display: block;
+  width: 36px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-tertiary);
+  opacity: 0.6;
+  transition: opacity var(--transition-fast);
+}
+
+.bottom-sheet__handle:hover .bottom-sheet__handle-bar,
+.bottom-sheet__handle:focus-visible .bottom-sheet__handle-bar {
+  opacity: 1;
+}
+
+.bottom-sheet__handle:focus-visible {
+  outline: 0;
+  /* Highlight the bar instead of stamping a ring on the giant tap zone. */
+}
+
+.bottom-sheet__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: 0 var(--space-lg) var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.bottom-sheet__title {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+  /* Long stop names should wrap rather than overflow. */
+  overflow-wrap: anywhere;
+}
+
+.bottom-sheet__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  border-radius: var(--radius-full);
+  color: var(--color-text-secondary);
+  background: transparent;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.bottom-sheet__close:hover,
+.bottom-sheet__close:focus-visible {
+  background: var(--color-border-hover);
+  color: var(--color-text-primary);
+}
+
+.bottom-sheet__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Reduced motion: snap to position instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .bottom-sheet__panel {
+    animation: none;
+    transition: none;
+  }
+  .bottom-sheet__backdrop {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* Desktop: bottom sheet shouldn't fire here (we render a Popup instead),
+   but as a safety net cap width and center the panel so it doesn't span
+   ultra-wide screens if a caller forgets to feature-flag. */
+@media (min-width: 769px) {
+  .bottom-sheet__panel {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(420px, 90vw);
+    border-radius: var(--radius-2xl);
+    bottom: var(--space-lg);
+  }
+}

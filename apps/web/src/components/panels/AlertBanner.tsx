@@ -71,11 +71,17 @@ const AlertBanner: Component = () => {
 
   return (
     <Show when={alertCount() > 0}>
-      <div class="alert-banner" data-severity={severity()}>
+      <div
+        class="alert-banner"
+        data-severity={severity()}
+        role="status"
+        aria-live="polite"
+      >
         <button
           class="alert-banner__summary"
           onClick={() => setExpanded((prev) => !prev)}
           aria-expanded={expanded()}
+          aria-label={`${alertCount()} alerte${alertCount() > 1 ? "s" : ""} active${alertCount() > 1 ? "s" : ""}`}
         >
           <span class="alert-banner__icon" aria-hidden="true">
             {severity() === "error"
