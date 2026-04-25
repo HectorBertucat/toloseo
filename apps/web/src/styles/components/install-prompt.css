@@ -54,7 +54,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 36px;
+  /* WCAG 2.1: 44 px minimum tap target. Was 36 px. */
+  min-height: var(--tap-min);
   padding: 0 var(--space-md);
   border-radius: var(--radius-md);
   font-size: var(--text-xs);

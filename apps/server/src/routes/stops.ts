@@ -153,13 +153,13 @@ function computeDepartures(stopId: string): DepartureInfo[] {
         const candidateDelay = Math.round((predMs - scheduledMs) / 1000);
         // Reject predictions that diverge by more than 30 min from schedule
         // (feed occasionally ships stale or wrongly-matched predictions).
-        if (Math.abs(candidateDelay) <= 1800) {
+        if (Math.abs(candidateDelay) <= 900) {
           estimatedMs = predMs;
           delay = candidateDelay;
           isRealtime = true;
         }
       }
-    } else if (vehicle && Math.abs(vehicle.delay) <= 1800) {
+    } else if (vehicle && Math.abs(vehicle.delay) <= 900) {
       // Fallback to the trip-wide delay from the vehicle (same sanity bound)
       delay = vehicle.delay;
       estimatedMs = scheduledMs + delay * 1000;

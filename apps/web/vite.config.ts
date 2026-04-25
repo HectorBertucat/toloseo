@@ -123,5 +123,30 @@ export default defineConfig({
   build: {
     target: "esnext",
     outDir: "dist",
+    // Surface regressions early: warn at 300 kB instead of 500 kB.
+    chunkSizeWarningLimit: 300,
+    rollupOptions: {
+      output: {
+        // Split heavy / shared deps into their own chunks so:
+        //   - MapLibre (~230 kB gzipped) caches independently of the app.
+        //     A SolidJS-only update doesn't bust the user's tile-renderer.
+        //   - solid-js + @solidjs/router land in a tiny shared chunk so
+        //     route-lazy views (Analytics, Favorites, DepartureBoard)
+        //     don't each re-bundle the framework.
+        //   - lucide-solid icons import-by-name produces one shared chunk.
+        manualChunks: (id) => {
+          if (id.includes("node_modules/maplibre-gl")) return "maplibre";
+          if (
+            id.includes("node_modules/solid-js") ||
+            id.includes("node_modules/@solidjs")
+          ) {
+            return "solid";
+          }
+          if (id.includes("node_modules/lucide-solid")) return "icons";
+          if (id.includes("node_modules/")) return "vendor";
+          return undefined;
+        },
+      },
+    },
   },
 });

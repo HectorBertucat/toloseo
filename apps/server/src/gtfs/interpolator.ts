@@ -1,7 +1,8 @@
-import { interpolateOnLine } from "../utils/geo.js";
+import { pointAtDistance } from "../utils/geo.js";
 import { parseGtfsTime, getCurrentServiceDate } from "../utils/time.js";
 import {
-  getShapes,
+  getShapeGeometries,
+  getStopDistByTrip,
   getStopTimes,
   getTrips,
   type StopTimeEntry,
@@ -15,14 +16,23 @@ interface InterpolatedPosition {
 }
 
 /**
- * Best-effort position for a vehicle on its trip.
+ * Best-effort current position for a vehicle on its trip, on the actual
+ * shape geometry.
+ *
+ * Key idea: work in "distance along shape" (meters) rather than "fraction
+ * of stops". The per-stop distance cache (built at GTFS load time) tells
+ * us where each stop sits on the shape — unevenly — so interpolating
+ * between two stops produces a position that matches reality instead of
+ * the old "assume stops are evenly spaced" approximation.
  *
  * Strategy, in order of preference:
- * 1. If we have RT stopTimeUpdate predictions, find the two consecutive stops
- *    whose (predictedDeparture, nextPredictedArrival) span `now`, and
- *    interpolate along the shape between those two stops.
- * 2. Otherwise fall back to the crude whole-trip linear interpolation based
- *    on static scheduled times adjusted by the reported delay.
+ *   1. If we have RT stopTimeUpdate predictions, find the two consecutive
+ *      stops whose (predictedDeparture, nextPredictedArrival) span `now`,
+ *      then linearly interpolate the meters-along-shape between them.
+ *   2. Static fallback: the same walk using scheduled departure/arrival
+ *      times, shifted by the trip-wide reported `delay`.
+ *   3. Returns null when neither path can produce a position (no shape,
+ *      no stops, or trip hasn't started / has ended with no data).
  */
 export function interpolateVehiclePosition(
   tripId: string,
@@ -33,47 +43,41 @@ export function interpolateVehiclePosition(
   const trip = getTrips().get(tripId);
   if (!trip) return null;
 
-  const shape = getShapes().get(trip.shapeId);
-  if (!shape || shape.coordinates.length === 0) return null;
+  const geom = getShapeGeometries().get(trip.shapeId);
+  if (!geom || geom.line.length === 0) return null;
 
   const times = getStopTimes().get(tripId);
   if (!times || times.length < 2) return null;
 
-  const latLonLine = shape.coordinates.map(
-    (c): [number, number] => [c[1] ?? 0, c[0] ?? 0],
-  );
+  const stopDist = getStopDistByTrip().get(tripId);
+  if (!stopDist || stopDist.length !== times.length) return null;
 
   // Path 1: use RT predictions per stop
   if (predictions && predictions.length > 0) {
-    const segmentFraction = fractionFromPredictions(times, predictions, nowMs);
-    if (segmentFraction !== null) {
-      return interpolateOnLine(latLonLine, segmentFraction);
+    const distance = distanceFromPredictions(times, stopDist, predictions, nowMs);
+    if (distance !== null) {
+      return pointAtDistance(geom.line, geom.cumDist, distance);
     }
   }
 
   // Path 2: static schedule + delay
-  const fraction = computeTripFractionStatic(times, delay, nowMs);
-  if (fraction === null) return null;
-  return interpolateOnLine(latLonLine, fraction);
+  const distance = distanceFromStatic(times, stopDist, delay, nowMs);
+  if (distance === null) return null;
+  return pointAtDistance(geom.line, geom.cumDist, distance);
 }
 
 /**
- * Finds the segment [stop N → stop N+1] that `now` falls into based on the
- * RT-predicted departure/arrival times, then returns the overall trip
- * fraction as (seqFractionInSegment weighted to whole trip).
- *
- * Stops are assumed to be evenly spaced along the shape — this is a
- * simplification but gives surprisingly good results since GTFS shapes
- * tend to sample densely near stops anyway.
+ * Locate the segment [stop N → stop N+1] whose predicted [departureN,
+ * arrivalN+1] window contains `now`, then interpolate the distance along
+ * the shape using actual per-stop distances.
  */
-function fractionFromPredictions(
+function distanceFromPredictions(
   staticTimes: StopTimeEntry[],
+  stopDist: number[],
   predictions: PredictedStop[],
   nowMs: number,
 ): number | null {
   const nowSec = Math.floor(nowMs / 1000);
-  const totalStops = staticTimes.length;
-  if (totalStops < 2) return null;
 
   // Index predictions by stopSequence for quick lookup
   const predBySeq = new Map<number, PredictedStop>();
@@ -81,7 +85,6 @@ function fractionFromPredictions(
     predBySeq.set(p.stopSequence, p);
   }
 
-  // Walk consecutive pairs
   for (let i = 0; i < staticTimes.length - 1; i++) {
     const a = staticTimes[i]!;
     const b = staticTimes[i + 1]!;
@@ -94,52 +97,78 @@ function fractionFromPredictions(
     if (!departureA || !arrivalB) continue;
     if (departureA >= arrivalB) continue;
 
+    const distA = stopDist[i] ?? 0;
+    const distB = stopDist[i + 1] ?? distA;
+
     if (nowSec >= departureA && nowSec <= arrivalB) {
       const segLocalFrac =
         (nowSec - departureA) / Math.max(1, arrivalB - departureA);
-      // Map segment into whole-shape fraction assuming even spacing
-      const fracA = i / (totalStops - 1);
-      const fracB = (i + 1) / (totalStops - 1);
-      return fracA + (fracB - fracA) * segLocalFrac;
+      return distA + (distB - distA) * segLocalFrac;
     }
 
-    // Vehicle hasn't reached this segment yet
+    // Vehicle hasn't reached this segment yet — sit at the previous stop.
     if (nowSec < departureA) {
-      // We are still at previous stop (or earlier)
-      return i / (totalStops - 1);
+      return distA;
     }
   }
 
-  // Past the last predicted stop
-  return 1;
+  // Past the last predicted stop — pin to trip end.
+  return stopDist[stopDist.length - 1] ?? null;
+}
+
+/**
+ * Static-schedule fallback: walk scheduled stop times, offset each by
+ * the trip-wide delay, and interpolate distance in the segment that
+ * contains `now`. Matches the shape of the RT path so behaviour is
+ * consistent when predictions are missing.
+ */
+function distanceFromStatic(
+  staticTimes: StopTimeEntry[],
+  stopDist: number[],
+  delay: number,
+  nowMs: number,
+): number | null {
+  const serviceDate = getCurrentServiceDate();
+  const nowSec = Math.floor(nowMs / 1000);
+
+  for (let i = 0; i < staticTimes.length - 1; i++) {
+    const a = staticTimes[i]!;
+    const b = staticTimes[i + 1]!;
+    const tA =
+      parseGtfsTime(a.departureTime || a.arrivalTime, serviceDate) / 1000 +
+      delay;
+    const tB =
+      parseGtfsTime(b.arrivalTime || b.departureTime, serviceDate) / 1000 +
+      delay;
+
+    if (!Number.isFinite(tA) || !Number.isFinite(tB)) continue;
+    if (tB <= tA) continue;
+
+    const distA = stopDist[i] ?? 0;
+    const distB = stopDist[i + 1] ?? distA;
+
+    if (nowSec >= tA && nowSec <= tB) {
+      const frac = (nowSec - tA) / Math.max(1, tB - tA);
+      return distA + (distB - distA) * frac;
+    }
+    if (nowSec < tA) {
+      return distA;
+    }
+  }
+
+  // Past the last scheduled stop.
+  const last = staticTimes[staticTimes.length - 1];
+  if (!last) return null;
+  const tLast =
+    parseGtfsTime(last.arrivalTime || last.departureTime, serviceDate) /
+      1000 +
+    delay;
+  if (nowSec < tLast) return stopDist[0] ?? 0;
+  return stopDist[stopDist.length - 1] ?? null;
 }
 
 function pickTime(first: number | undefined, fallback: number | undefined): number {
   if (first && first > 0) return first;
   if (fallback && fallback > 0) return fallback;
   return 0;
-}
-
-function computeTripFractionStatic(
-  stopTimes: StopTimeEntry[],
-  delay: number,
-  nowMs: number,
-): number | null {
-  const serviceDate = getCurrentServiceDate();
-  const first = stopTimes[0];
-  const last = stopTimes[stopTimes.length - 1];
-  if (!first || !last) return null;
-
-  const tripStart = parseGtfsTime(first.departureTime, serviceDate);
-  const tripEnd = parseGtfsTime(last.arrivalTime, serviceDate);
-  const duration = tripEnd - tripStart;
-  if (duration <= 0) return null;
-
-  const adjustedNow = nowMs - delay * 1000;
-  const elapsed = adjustedNow - tripStart;
-
-  if (elapsed < 0) return 0;
-  if (elapsed > duration) return 1;
-
-  return elapsed / duration;
 }

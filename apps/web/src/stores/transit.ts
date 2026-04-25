@@ -16,6 +16,8 @@ interface TransitState {
   alerts: Alert[];
   connectionStatus: ConnectionStatus;
   lastUpdate: number;
+  feedAgeMs: number | null;
+  feedStale: boolean;
 }
 
 const initialState: TransitState = {
@@ -25,6 +27,8 @@ const initialState: TransitState = {
   alerts: [],
   connectionStatus: "disconnected",
   lastUpdate: 0,
+  feedAgeMs: null,
+  feedStale: false,
 };
 
 const [transitState, setTransitState] = createStore<TransitState>(initialState);
@@ -58,6 +62,8 @@ function handleSSEEvent(event: SSEEvent): void {
           }
           state.alerts = event.alerts;
           state.lastUpdate = event.timestamp;
+          state.feedAgeMs = event.feedAgeMs ?? null;
+          state.feedStale = event.feedStale ?? false;
         }),
       );
       break;
@@ -82,7 +88,13 @@ function handleSSEEvent(event: SSEEvent): void {
       break;
 
     case "heartbeat":
-      setTransitState("lastUpdate", event.timestamp);
+      setTransitState(
+        produce((state) => {
+          state.lastUpdate = event.timestamp;
+          state.feedAgeMs = event.feedAgeMs ?? state.feedAgeMs;
+          state.feedStale = event.feedStale ?? false;
+        }),
+      );
       break;
   }
 }

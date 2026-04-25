@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { getVehicles, getAlerts } from "../gtfs/store.js";
+import { getVehicles, getAlerts, getFeedHeaderTimestamp } from "../gtfs/store.js";
 import { isInBbox, parseBbox } from "../utils/geo.js";
 import { logger } from "../logger.js";
 import {
@@ -8,10 +8,31 @@ import {
   releaseSseSlot,
   getClientIpFromHeader,
 } from "../middleware/rate-limit.js";
+import { REFINE_INTERVAL_MS } from "../gtfs/realtime-poller.js";
 import type { Vehicle, BBox, SSEInitEvent, SSEVehicleEvent, SSEAlertEvent, SSEHeartbeatEvent } from "@shared/types.js";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const POLL_INTERVAL_MS = 2_000;
+// Feed is considered stale when the upstream header timestamp is more
+// than this old. The client greys out positions + shows a banner.
+const FEED_STALE_THRESHOLD_MS = 120_000;
+
+function computeFeedHealth(): {
+  feedAgeMs: number | undefined;
+  feedStale: boolean;
+  refineIntervalMs: number;
+} {
+  const headerTs = getFeedHeaderTimestamp();
+  if (!headerTs) {
+    return { feedAgeMs: undefined, feedStale: false, refineIntervalMs: REFINE_INTERVAL_MS };
+  }
+  const age = Date.now() - headerTs;
+  return {
+    feedAgeMs: Math.max(0, age),
+    feedStale: age > FEED_STALE_THRESHOLD_MS,
+    refineIntervalMs: REFINE_INTERVAL_MS,
+  };
+}
 
 interface SseClient {
   id: string;
@@ -66,6 +87,7 @@ async function sendInitEvent(
     vehicles,
     alerts,
     timestamp: Date.now(),
+    ...computeFeedHealth(),
   };
 
   await stream.writeSSE({ event: "init", data: JSON.stringify(event) });
@@ -86,7 +108,11 @@ async function runEventLoop(
     await sendAlertDelta(stream, client);
 
     if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
-      const hb: SSEHeartbeatEvent = { type: "heartbeat", timestamp: now };
+      const hb: SSEHeartbeatEvent = {
+        type: "heartbeat",
+        timestamp: now,
+        ...computeFeedHealth(),
+      };
       await stream.writeSSE({ event: "heartbeat", data: JSON.stringify(hb) });
       lastHeartbeat = now;
     }

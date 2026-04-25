@@ -18,9 +18,11 @@ import {
 } from "../../services/api";
 import { transitState, setLines } from "../../stores/transit";
 import DelayChart from "./DelayChart";
+import DistributionBar from "./DistributionBar";
 import Sparkline from "../ui/Sparkline";
 import Skeleton from "../ui/Skeleton";
 import { pickReadableTextColor } from "../../utils/contrast";
+import type { DelayDistribution } from "@shared/types";
 import "../../styles/components/analytics.css";
 
 function formatNetworkDelay(seconds: number): string {
@@ -30,6 +32,10 @@ function formatNetworkDelay(seconds: number): string {
   if (abs < 60) return `${sign}${abs}s`;
   const minutes = Math.round(abs / 60);
   return `${sign}${minutes} min`;
+}
+
+function emptyDistribution(): DelayDistribution {
+  return { veryEarly: 0, early: 0, onTime: 0, late: 0, veryLate: 0 };
 }
 
 const AnalyticsView: Component = () => {
@@ -63,6 +69,44 @@ const AnalyticsView: Component = () => {
       const line = transitState.lines.find((l) => l.id === score.routeId);
       return { ...score, line };
     });
+  });
+
+  // Aggregated network distribution: sum every route's bucket counts so
+  // we can show one stacked bar that captures the whole system, not just
+  // the unweighted average. Median falls out naturally — pick the bucket
+  // mid-point holding the half-sample mark.
+  const networkDistribution = createMemo<DelayDistribution>(() => {
+    const acc = emptyDistribution();
+    for (const r of analyticsState.reliability) {
+      const d = r.distribution;
+      if (!d) continue;
+      acc.veryEarly += d.veryEarly;
+      acc.early += d.early;
+      acc.onTime += d.onTime;
+      acc.late += d.late;
+      acc.veryLate += d.veryLate;
+    }
+    return acc;
+  });
+
+  const networkMedian = createMemo<number>(() => {
+    const d = networkDistribution();
+    const total = d.veryEarly + d.early + d.onTime + d.late + d.veryLate;
+    if (total === 0) return 0;
+    const half = total / 2;
+    let acc = 0;
+    const buckets: [number, number][] = [
+      [-600, d.veryEarly],
+      [-180, d.early],
+      [60, d.onTime],
+      [450, d.late],
+      [900, d.veryLate],
+    ];
+    for (const [mid, count] of buckets) {
+      acc += count;
+      if (acc >= half) return mid;
+    }
+    return 0;
   });
 
   const bestLines = createMemo(() =>
@@ -101,31 +145,55 @@ const AnalyticsView: Component = () => {
           <Show when={analyticsState.summary}>
             <section class="analytics-view__summary">
               <div class="analytics-view__stat">
-                <span class="analytics-view__stat-value">
+                <span class="analytics-view__stat-value tabular">
                   {analyticsState.summary!.activeVehicles}
                 </span>
                 <span class="analytics-view__stat-label">
-                  Vehicules actifs maintenant
+                  Véhicules actifs
                 </span>
               </div>
               <div class="analytics-view__stat">
-                <span class="analytics-view__stat-value">
+                <span class="analytics-view__stat-value tabular">
                   {analyticsState.summary!.onTimePercent.toFixed(0)}%
                 </span>
-                <span class="analytics-view__stat-label">A l'heure (≤ 5 min)</span>
+                <span class="analytics-view__stat-label">À l'heure (−1 à +5 min)</span>
               </div>
               <div class="analytics-view__stat">
-                <span class="analytics-view__stat-value">
-                  {formatNetworkDelay(analyticsState.summary!.avgNetworkDelay)}
+                <span class="analytics-view__stat-value tabular">
+                  {formatNetworkDelay(networkMedian())}
                 </span>
-                <span class="analytics-view__stat-label">Retard moyen actuel</span>
+                <span class="analytics-view__stat-label">
+                  Médiane réseau
+                  <span class="analytics-view__stat-sub tabular">
+                    (moy. {formatNetworkDelay(analyticsState.summary!.avgNetworkDelay)})
+                  </span>
+                </span>
               </div>
               <div class="analytics-view__stat">
-                <span class="analytics-view__stat-value">
+                <span class="analytics-view__stat-value tabular">
                   {analyticsState.summary!.activeAlerts}
                 </span>
-                <span class="analytics-view__stat-label">Alertes reseau</span>
+                <span class="analytics-view__stat-label">Alertes réseau</span>
               </div>
+            </section>
+          </Show>
+
+          <Show
+            when={
+              networkDistribution().veryEarly +
+                networkDistribution().early +
+                networkDistribution().onTime +
+                networkDistribution().late +
+                networkDistribution().veryLate >
+              0
+            }
+          >
+            <section class="analytics-view__section">
+              <h2>Distribution des retards réseau</h2>
+              <DistributionBar
+                distribution={networkDistribution()}
+                ariaLabel="Distribution des retards sur le réseau (7 derniers jours)"
+              />
             </section>
           </Show>
 

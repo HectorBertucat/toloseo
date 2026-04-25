@@ -4,6 +4,7 @@ import {
   onCleanup,
   createSignal,
   createEffect,
+  lazy,
 } from "solid-js";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -20,9 +21,11 @@ import StopMarkers from "./StopMarkers";
 import LineLayer from "./LineLayer";
 import StopPopup from "./StopPopup";
 import VehiclePopup from "./VehiclePopup";
-import MapLegend from "./MapLegend";
 import LocateButton from "./LocateButton";
-import CoachMarks from "../ui/CoachMarks";
+// Lazy: legend + onboarding aren't on the critical path. Load them after
+// first paint so the initial map render doesn't pull their JS+CSS.
+const MapLegend = lazy(() => import("./MapLegend"));
+const CoachMarks = lazy(() => import("../ui/CoachMarks"));
 import "../../styles/components/map.css";
 
 const TOULOUSE_CENTER: [number, number] = [1.4437, 43.6047];
@@ -49,12 +52,21 @@ const TransitMap: Component = () => {
       const bounds = map.getBounds();
       const bbox = bboxFromBounds(bounds);
       updateBBox(bbox);
+      // Stops are now bbox-scoped on the server. Re-fetch on each pan so
+      // the user sees stops outside the initial viewport without us
+      // shipping the full network at boot.
+      void loadStops();
     }, DEBOUNCE_MS);
   }
 
   async function loadStops(): Promise<void> {
     try {
-      const stops = await getStops();
+      // First call uses the current map viewport so we don't pull the full
+      // ~5500-stop list (≈1.5 MB JSON) on every cold load. The user can
+      // pan/zoom to discover more — sse-client + StopMarkers already react
+      // to bbox changes.
+      const bbox = map ? bboxFromBounds(map.getBounds()) : undefined;
+      const stops = await getStops(bbox);
       setStops(stops);
       setStopsLoaded(true);
     } catch (err) {

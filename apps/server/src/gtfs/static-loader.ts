@@ -10,6 +10,8 @@ import {
   getStops,
   getTrips,
   getShapes,
+  getShapeGeometries,
+  getStopDistByTrip,
   getStopTimes,
   getServiceCalendars,
   getCalendarExceptions,
@@ -19,9 +21,14 @@ import {
 import type {
   GeoJsonLineString,
   ServiceCalendar,
+  ShapeGeometry,
   StopTimeEntry,
   TripInfo,
 } from "./store.js";
+import {
+  computeCumulativeDistances,
+  projectOnLine,
+} from "../utils/geo.js";
 import type { TransitLine, Stop, TransitMode } from "@shared/types.js";
 
 export async function loadGtfsStatic(): Promise<void> {
@@ -42,6 +49,8 @@ export async function loadGtfsStatic(): Promise<void> {
 
   const files = await extractZip(new Uint8Array(zipBuffer));
   await parseAllFiles(files);
+  precomputeShapeGeometries();
+  precomputeStopDistances();
   setGtfsLoaded(true);
   logStats();
 }
@@ -243,11 +252,17 @@ async function parseStopTimes(csv: string): Promise<void> {
   const stMap = getStopTimes();
   await streamCsv(csv, (row) => {
     const tripId = row["trip_id"] ?? "";
+    const shapeDistRaw = row["shape_dist_traveled"];
+    const shapeDist =
+      shapeDistRaw != null && shapeDistRaw !== ""
+        ? parseFloat(shapeDistRaw)
+        : NaN;
     const entry: StopTimeEntry = {
       stopId: row["stop_id"] ?? "",
       arrivalTime: row["arrival_time"] ?? "",
       departureTime: row["departure_time"] ?? "",
       stopSequence: parseInt(row["stop_sequence"] ?? "0", 10),
+      shapeDistTraveled: Number.isFinite(shapeDist) ? shapeDist : undefined,
     };
     const existing = stMap.get(tripId);
     if (existing) {
@@ -259,6 +274,113 @@ async function parseStopTimes(csv: string): Promise<void> {
 
   for (const [, entries] of stMap) {
     entries.sort((a, b) => a.stopSequence - b.stopSequence);
+  }
+}
+
+/**
+ * For every loaded shape, precompute the [lat, lon] vertex list and the
+ * cumulative distance to each vertex. Done once so the interpolator and
+ * analytics paths don't rewalk Haversine on every tick.
+ */
+function precomputeShapeGeometries(): void {
+  const shapesMap = getShapes();
+  const geoMap = getShapeGeometries();
+  geoMap.clear();
+  for (const [shapeId, shape] of shapesMap) {
+    // shape.coordinates is [lon, lat]; interpolator expects [lat, lon].
+    const line: [number, number][] = shape.coordinates.map((c) => [
+      c[1] ?? 0,
+      c[0] ?? 0,
+    ]);
+    if (line.length === 0) continue;
+    const cumDist = computeCumulativeDistances(line);
+    const totalLength = cumDist[cumDist.length - 1] ?? 0;
+    const geom: ShapeGeometry = { line, cumDist, totalLength };
+    geoMap.set(shapeId, geom);
+  }
+}
+
+/**
+ * For every trip, produce the distance-along-shape (meters) at each stop.
+ *
+ * Two cases:
+ *   - Feed provides `shape_dist_traveled` on stop_times: use it directly
+ *     (we only need to verify monotonicity and remap into meters; many
+ *     feeds — including Tisseo's when present — already ship meters).
+ *   - Feed doesn't provide it: fall back to orthogonal projection of every
+ *     stop's (lat, lon) onto the shape, guaranteeing monotonic distances by
+ *     clamping successive stops to previous values if projection drifts
+ *     backwards (happens on overlapping loops).
+ */
+function precomputeStopDistances(): void {
+  const stopsMap = getStops();
+  const tripsMap = getTrips();
+  const stopTimesMap = getStopTimes();
+  const geoMap = getShapeGeometries();
+  const out = getStopDistByTrip();
+  out.clear();
+
+  for (const [tripId, stMap] of stopTimesMap) {
+    const trip = tripsMap.get(tripId);
+    if (!trip) continue;
+    const geom = geoMap.get(trip.shapeId);
+    if (!geom || geom.line.length === 0) continue;
+
+    const distances = new Array<number>(stMap.length);
+    const providedAll = stMap.every(
+      (s) =>
+        s.shapeDistTraveled !== undefined &&
+        Number.isFinite(s.shapeDistTraveled),
+    );
+
+    if (providedAll) {
+      // Feed-provided distances are usually in meters for Tisseo. If the
+      // scale looks off (max << shape total length), rescale linearly.
+      const provided = stMap.map((s) => s.shapeDistTraveled ?? 0);
+      const maxProvided = provided[provided.length - 1] ?? 0;
+      const scale =
+        maxProvided > 0 && geom.totalLength > 0
+          ? geom.totalLength / maxProvided
+          : 1;
+      // Only rescale if the feed value is obviously not meters (within 15%
+      // of total length means it's already correct).
+      const useScale = Math.abs(scale - 1) > 0.15 ? scale : 1;
+      for (let i = 0; i < stMap.length; i++) {
+        distances[i] = (provided[i] ?? 0) * useScale;
+      }
+    } else {
+      // Fall back to projection; enforce monotonicity so a loop or backtrack
+      // in the shape doesn't send the interpolator backwards between stops.
+      let prev = 0;
+      for (let i = 0; i < stMap.length; i++) {
+        const s = stMap[i]!;
+        const stop = stopsMap.get(s.stopId);
+        if (!stop) {
+          distances[i] = prev;
+          continue;
+        }
+        const { distance } = projectOnLine(
+          geom.line,
+          geom.cumDist,
+          stop.lat,
+          stop.lon,
+        );
+        const d = Math.max(prev, distance);
+        distances[i] = d;
+        prev = d;
+      }
+      // Last stop should land on the shape's terminus; pin it if projection
+      // fell short (common when the shape has extra tail after the last stop).
+      if (distances.length > 0) {
+        const lastIdx = distances.length - 1;
+        distances[lastIdx] = Math.max(
+          distances[lastIdx] ?? 0,
+          geom.totalLength,
+        );
+      }
+    }
+
+    out.set(tripId, distances);
   }
 }
 
@@ -301,7 +423,9 @@ function logStats(): void {
       stops: getStops().size,
       trips: getTrips().size,
       shapes: getShapes().size,
+      shapeGeometries: getShapeGeometries().size,
       stopTimes: getStopTimes().size,
+      stopDistByTrip: getStopDistByTrip().size,
       calendars: getServiceCalendars().size,
     },
     "GTFS static data loaded",
